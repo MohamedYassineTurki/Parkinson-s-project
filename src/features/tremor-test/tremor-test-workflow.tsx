@@ -100,7 +100,7 @@ export function TremorTestWorkflow({ medications }: { medications: MedicationOpt
     });
     setSaveState(
       result.ok
-        ? { status: "saved", message: result.pairId ? "Result saved and paired." : "Result saved.", sessionId: result.sessionId }
+        ? { status: "saved", message: `${result.pairId ? "Result saved and paired." : "Result saved."}${result.mlStatus === "success" ? " Experimental ML analysis completed." : " ML was unavailable, so the deterministic result was saved safely."}`, sessionId: result.sessionId }
         : { status: "error", message: result.message },
     );
   }

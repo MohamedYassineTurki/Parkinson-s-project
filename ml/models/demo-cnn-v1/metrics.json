@@ -1,0 +1,90 @@
+{
+  "version": "demo-cnn-v1",
+  "preprocessing_version": "signal-v2",
+  "parameter_count": 1035,
+  "balanced_accuracy": 0.9964285714285714,
+  "macro_f1": 0.9964283892035308,
+  "classification_report": {
+    "0": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 140.0
+    },
+    "1": {
+      "precision": 0.9859154929577465,
+      "recall": 1.0,
+      "f1-score": 0.9929078014184397,
+      "support": 140.0
+    },
+    "2": {
+      "precision": 1.0,
+      "recall": 0.9857142857142858,
+      "f1-score": 0.9928057553956835,
+      "support": 140.0
+    },
+    "3": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 140.0
+    },
+    "accuracy": 0.9964285714285714,
+    "macro avg": {
+      "precision": 0.9964788732394366,
+      "recall": 0.9964285714285714,
+      "f1-score": 0.9964283892035308,
+      "support": 560.0
+    },
+    "weighted avg": {
+      "precision": 0.9964788732394366,
+      "recall": 0.9964285714285714,
+      "f1-score": 0.9964283892035307,
+      "support": 560.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      140,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      140,
+      0,
+      0
+    ],
+    [
+      0,
+      2,
+      138,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      140
+    ]
+  ],
+  "epochs_completed": 40,
+  "test_participants": [
+    "p008",
+    "p009",
+    "p015",
+    "p017",
+    "p024",
+    "p029",
+    "p030"
+  ],
+  "validation_participants": [
+    "p000",
+    "p010",
+    "p013",
+    "p020",
+    "p028"
+  ],
+  "warning": "Research/demo model only; not clinically validated."
+}

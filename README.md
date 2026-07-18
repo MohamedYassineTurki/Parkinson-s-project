@@ -18,6 +18,7 @@ The app should not claim to diagnose Parkinson disease or recommend medication c
 - PostgreSQL
 - Zod
 - Recharts
+- Python, FastAPI, scikit-learn, and an optional tiny TensorFlow CNN
 
 ## Local Setup
 
@@ -53,6 +54,8 @@ Open `http://localhost:3000`.
 - `npm run db:migrate` applies Drizzle migrations.
 - `npm run db:studio` opens Drizzle Studio.
 
+The ML service and reproducible training workflow are documented in [`ml/README.md`](ml/README.md). The committed `demo-feature-v1` artifact is trained only on deterministic synthetic signals so the integration can be tested; it is not clinical evidence.
+
 ## Implemented Features
 
 - Better Auth email/password signup, signin, signout, session validation, and patient/doctor role enforcement.
@@ -65,6 +68,7 @@ Open `http://localhost:3000`.
 - Recording quality checks, severity output, saved result page, and raw/computed result persistence.
 - Persisted before/after medication pairing and improvement calculation.
 - Database-backed patient history, charts, repeated-worsening alert rule, doctor dashboard, and patient detail view.
+- Versioned lightweight ML inference with persisted model provenance, predictions, personal baselines, comparisons, timeouts, and deterministic fallback.
 - Safety language that avoids diagnosis and medication-change recommendations.
 
 ## Verification

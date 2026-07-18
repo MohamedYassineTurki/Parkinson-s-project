@@ -23,9 +23,28 @@ DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE
 BETTER_AUTH_SECRET=<at-least-32-random-characters>
 BETTER_AUTH_URL=https://your-production-domain.example
 RUN_DB_MIGRATIONS=true
+ML_SERVICE_URL=http://YOUR_INTERNAL_ML_SERVICE:8000
+ML_SERVICE_API_KEY=<same-long-random-key-used-by-the-ml-service>
 ```
 
 `BETTER_AUTH_URL` must exactly match the HTTPS domain configured for the application. Database migrations run by default when the container starts, and `RUN_DB_MIGRATIONS=true` makes that explicit. This is appropriate for the default single-replica deployment. For multiple replicas, run migrations as a one-off release task and set `RUN_DB_MIGRATIONS=false` on the web service.
+
+## ML inference application
+
+Create a second Dokploy Application from the same repository:
+
+- Build type: `Dockerfile`
+- Dockerfile path: `ml/Dockerfile`
+- Docker context path: `ml`
+- Application port: `8000`
+- Environment: `ML_SERVICE_API_KEY=<long-random-key>`
+- Environment: `ML_MODEL_PATH=models/demo-feature-v1/model.json`
+
+Keep the ML application on the internal Dokploy network. The public web domain
+does not need to expose it. Configure the web application's `ML_SERVICE_URL`
+with the internal service hostname and use exactly the same service key in both
+applications. `GET /health` reports `degraded` when no compatible model can be
+loaded; Next.js still saves deterministic signal results when ML is down.
 
 If signup fails with `relation "user" does not exist`, the app reached PostgreSQL before migrations created Better Auth's tables. Check the deploy logs for `Running database migrations...` and `Database migrations completed. Found public."user".`, then verify the application is using the same `DATABASE_URL` as the PostgreSQL service.
 

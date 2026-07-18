@@ -75,7 +75,7 @@ test("doctor invite, patient onboarding, sensor recording, and dashboard flow", 
       if (count >= 500) window.clearInterval(timer);
     }, 20);
   });
-  await expect(page.getByText("Result saved.", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/^Result saved\./)).toBeVisible({ timeout: 20_000 });
 
   await page.getByRole("button", { name: "Restart setup" }).click();
   await page.getByRole("button", { name: /After medication/ }).click();
@@ -96,7 +96,7 @@ test("doctor invite, patient onboarding, sensor recording, and dashboard flow", 
       if (count >= 500) window.clearInterval(timer);
     }, 20);
   });
-  await expect(page.getByText("Result saved and paired.", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/^Result saved and paired\./)).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("Improved", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "View saved result" }).click();
   await expect(page.getByRole("heading", { name: /Severity/ })).toBeVisible();

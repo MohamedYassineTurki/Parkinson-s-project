@@ -4,13 +4,16 @@ version = "0.1.0"
 description = "Reproducible accelerometer preprocessing and baseline model training for Parkinson Project"
 requires-python = ">=3.10"
 dependencies = [
+  "fastapi>=0.115,<1",
   "numpy>=1.26,<3",
-  "scikit-learn>=1.4,<2",
+  "pydantic>=2.10,<3",
+  "uvicorn>=0.34,<1",
 ]
 
 [project.optional-dependencies]
-cnn = ["tensorflow>=2.16,<3"]
-dev = ["pytest>=8,<9"]
+training = ["scikit-learn>=1.4,<2"]
+cnn = ["scikit-learn>=1.4,<2", "tensorflow>=2.16,<3"]
+dev = ["httpx>=0.28,<1", "pytest>=8,<9", "scikit-learn>=1.4,<2"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

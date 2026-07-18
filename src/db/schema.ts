@@ -52,6 +52,15 @@ export const auditActorType = pgEnum("audit_actor_type", [
   "doctor",
   "system",
 ]);
+export const mlModelStatus = pgEnum("ml_model_status", ["active", "inactive", "failed"]);
+export const mlPredictionStatus = pgEnum("ml_prediction_status", ["success", "unavailable", "failed"]);
+export const personalComparisonStatus = pgEnum("personal_comparison_status", [
+  "building_baseline",
+  "within_usual",
+  "above_usual",
+  "below_usual",
+  "not_comparable",
+]);
 
 export const users = pgTable("user", {
   id: text("id").primaryKey(),
@@ -312,6 +321,105 @@ export const tremorResults = pgTable(
   ],
 );
 
+export const mlModels = pgTable(
+  "ml_models",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    version: text("version").notNull().unique(),
+    modelType: text("model_type").notNull(),
+    preprocessingVersion: text("preprocessing_version").notNull(),
+    provenance: text("provenance").notNull(),
+    clinicallyValidated: boolean("clinically_validated").default(false).notNull(),
+    status: mlModelStatus("status").default("active").notNull(),
+    metrics: jsonb("metrics").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index("ml_models_status_idx").on(table.status)],
+);
+
+export const tremorMlPredictions = pgTable(
+  "tremor_ml_predictions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .unique()
+      .references(() => tremorTestSessions.id, { onDelete: "cascade" }),
+    modelId: uuid("model_id").references(() => mlModels.id, { onDelete: "set null" }),
+    status: mlPredictionStatus("status").notNull(),
+    severityClass: integer("severity_class"),
+    severityLabel: tremorSeverityLabel("severity_label"),
+    probabilities: jsonb("probabilities").$type<number[]>(),
+    confidence: doublePrecision("confidence"),
+    windowCount: integer("window_count"),
+    inferenceDurationMs: doublePrecision("inference_duration_ms"),
+    requestId: text("request_id"),
+    failureReason: text("failure_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("tremor_ml_predictions_model_idx").on(table.modelId),
+    index("tremor_ml_predictions_status_idx").on(table.status),
+  ],
+);
+
+export const patientTremorBaselines = pgTable(
+  "patient_tremor_baselines",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    patientProfileId: uuid("patient_profile_id")
+      .notNull()
+      .references(() => patientProfiles.id, { onDelete: "cascade" }),
+    medicationId: uuid("medication_id")
+      .notNull()
+      .references(() => medications.id, { onDelete: "cascade" }),
+    context: testContext("context").notNull(),
+    algorithmVersion: text("algorithm_version").notNull(),
+    medianTremorPower: doublePrecision("median_tremor_power"),
+    medianAbsoluteDeviation: doublePrecision("median_absolute_deviation"),
+    sessionCount: integer("session_count").default(0).notNull(),
+    status: personalComparisonStatus("status").default("building_baseline").notNull(),
+    firstSessionAt: timestamp("first_session_at", { withTimezone: true }),
+    lastSessionAt: timestamp("last_session_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("patient_tremor_baselines_patient_idx").on(table.patientProfileId),
+    uniqueIndex("patient_tremor_baselines_scope_unique").on(
+      table.patientProfileId,
+      table.medicationId,
+      table.context,
+      table.algorithmVersion,
+    ),
+  ],
+);
+
+export const patientSessionComparisons = pgTable(
+  "patient_session_comparisons",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .unique()
+      .references(() => tremorTestSessions.id, { onDelete: "cascade" }),
+    baselineId: uuid("baseline_id").references(() => patientTremorBaselines.id, {
+      onDelete: "set null",
+    }),
+    status: personalComparisonStatus("status").notNull(),
+    deviationPercent: doublePrecision("deviation_percent"),
+    robustZScore: doublePrecision("robust_z_score"),
+    baselineSessionCount: integer("baseline_session_count").notNull(),
+    explanation: text("explanation").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("patient_session_comparisons_baseline_idx").on(table.baselineId),
+    index("patient_session_comparisons_status_idx").on(table.status),
+  ],
+);
+
 export const tremorTestPairs = pgTable(
   "tremor_test_pairs",
   {
@@ -440,6 +548,7 @@ export const patientProfilesRelations = relations(patientProfiles, ({ many, one 
   medicationIntakes: many(medicationIntakes),
   tremorTestSessions: many(tremorTestSessions),
   tremorTestPairs: many(tremorTestPairs),
+  tremorBaselines: many(patientTremorBaselines),
   alerts: many(alerts),
 }));
 
@@ -515,6 +624,8 @@ export const tremorTestSessionsRelations = relations(
       references: [medicationIntakes.id],
     }),
     result: one(tremorResults),
+    mlPrediction: one(tremorMlPredictions),
+    personalComparison: one(patientSessionComparisons),
     beforePairs: many(tremorTestPairs, { relationName: "beforeSession" }),
     afterPairs: many(tremorTestPairs, { relationName: "afterSession" }),
     alerts: many(alerts),
@@ -527,6 +638,53 @@ export const tremorResultsRelations = relations(tremorResults, ({ one }) => ({
     references: [tremorTestSessions.id],
   }),
 }));
+
+export const mlModelsRelations = relations(mlModels, ({ many }) => ({
+  predictions: many(tremorMlPredictions),
+}));
+
+export const tremorMlPredictionsRelations = relations(
+  tremorMlPredictions,
+  ({ one }) => ({
+    session: one(tremorTestSessions, {
+      fields: [tremorMlPredictions.sessionId],
+      references: [tremorTestSessions.id],
+    }),
+    model: one(mlModels, {
+      fields: [tremorMlPredictions.modelId],
+      references: [mlModels.id],
+    }),
+  }),
+);
+
+export const patientTremorBaselinesRelations = relations(
+  patientTremorBaselines,
+  ({ many, one }) => ({
+    patientProfile: one(patientProfiles, {
+      fields: [patientTremorBaselines.patientProfileId],
+      references: [patientProfiles.id],
+    }),
+    medication: one(medications, {
+      fields: [patientTremorBaselines.medicationId],
+      references: [medications.id],
+    }),
+    comparisons: many(patientSessionComparisons),
+  }),
+);
+
+export const patientSessionComparisonsRelations = relations(
+  patientSessionComparisons,
+  ({ one }) => ({
+    session: one(tremorTestSessions, {
+      fields: [patientSessionComparisons.sessionId],
+      references: [tremorTestSessions.id],
+    }),
+    baseline: one(patientTremorBaselines, {
+      fields: [patientSessionComparisons.baselineId],
+      references: [patientTremorBaselines.id],
+    }),
+  }),
+);
 
 export const tremorTestPairsRelations = relations(tremorTestPairs, ({ one }) => ({
   patientProfile: one(patientProfiles, {
