@@ -14,11 +14,15 @@ import {
   Smartphone,
   Waves,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import { compareMedicationResponse } from "./comparison";
-import { saveTremorRecording } from "./actions";
+import {
+  getDailyDosePairingStatuses,
+  saveTremorRecording,
+  type DailyDosePairingStatus,
+} from "./actions";
 import {
   evaluateRecordingQuality,
   isDeviceMotionSupported,
@@ -48,6 +52,17 @@ const protocolSteps = [
 
 type MedicationOption = { id: string; name: string; dose: string; scheduleTimes: string[] };
 
+async function loadDailyDoseStatuses(medicationId: string) {
+  if (!medicationId) return [];
+  const now = new Date();
+  const result = await getDailyDosePairingStatuses({
+    medicationId,
+    now: now.toISOString(),
+    timezoneOffsetMinutes: now.getTimezoneOffset(),
+  });
+  return result.ok ? result.statuses : [];
+}
+
 export function TremorTestWorkflow({ medications }: { medications: MedicationOption[] }) {
   const [step, setStep] = useState<TremorTestStep>("setup");
   const [context, setContext] = useState<TremorTestContext>("before_medication");
@@ -55,8 +70,9 @@ export function TremorTestWorkflow({ medications }: { medications: MedicationOpt
   const [medicationName, setMedicationName] = useState(
     medications[0] ? `${medications[0].name} ${medications[0].dose}` : "",
   );
-  const [doseTime, setDoseTime] = useState("");
+  const [doseTime, setDoseTime] = useState(medications[0]?.scheduleTimes[0] ?? "");
   const [doseSlot, setDoseSlot] = useState(0);
+  const [dailyDoseStatuses, setDailyDoseStatuses] = useState<DailyDosePairingStatus[]>([]);
   const [notes, setNotes] = useState("");
   const [recording, setRecording] = useState<SensorRecording | null>(null);
   const [recordingsByContext, setRecordingsByContext] = useState<
@@ -81,6 +97,16 @@ export function TremorTestWorkflow({ medications }: { medications: MedicationOpt
     [recordingsByContext],
   );
 
+  useEffect(() => {
+    let cancelled = false;
+    void loadDailyDoseStatuses(medicationId).then((statuses) => {
+      if (!cancelled) setDailyDoseStatuses(statuses);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [medicationId]);
+
   async function handleRecordingComplete(completedRecording: SensorRecording) {
     setRecording(completedRecording);
     setRecordingsByContext((current) => ({
@@ -91,6 +117,7 @@ export function TremorTestWorkflow({ medications }: { medications: MedicationOpt
     const result = await saveTremorRecording({
       medicationId,
       doseSlot,
+      timezoneOffsetMinutes: new Date().getTimezoneOffset(),
       context: completedRecording.context,
       doseTime,
       notes,
@@ -100,11 +127,21 @@ export function TremorTestWorkflow({ medications }: { medications: MedicationOpt
       quality: completedRecording.quality,
       analysis: completedRecording.analysis,
     });
-    setSaveState(
-      result.ok
-        ? { status: "saved", message: `${result.pairId ? "Result saved and paired." : "Result saved."}${result.mlStatus === "success" ? " Experimental ML analysis completed." : " ML was unavailable, so the deterministic result was saved safely."}`, sessionId: result.sessionId }
-        : { status: "error", message: result.message },
-    );
+    if (result.ok) {
+      setDailyDoseStatuses(await loadDailyDoseStatuses(medicationId));
+      const pairingMessage = result.pairId
+        ? "Result saved and paired with today's before-medication test for this dose."
+        : completedRecording.context === "after_medication"
+          ? "Result saved, but no valid before-medication test was found today for this medication and dose."
+          : "Before-medication result saved. You can close the app and return after this same dose.";
+      setSaveState({
+        status: "saved",
+        message: `${pairingMessage}${result.mlStatus === "success" ? " Experimental ML analysis completed." : " ML was unavailable, so the deterministic result was saved safely."}`,
+        sessionId: result.sessionId,
+      });
+    } else {
+      setSaveState({ status: "error", message: result.message });
+    }
   }
 
   return (
@@ -122,11 +159,11 @@ export function TremorTestWorkflow({ medications }: { medications: MedicationOpt
             doseSlot={doseSlot}
             medicationId={medicationId}
             medications={medications}
+            dailyDoseStatuses={dailyDoseStatuses}
             notes={notes}
             onContextChange={(nextContext) => {
               setContext(nextContext);
               setRecording(null);
-              setRecordingsByContext({});
             }}
             onDoseTimeChange={setDoseTime}
             onDoseSlotChange={(slot, time) => {
@@ -140,6 +177,9 @@ export function TremorTestWorkflow({ medications }: { medications: MedicationOpt
               setMedicationName(name);
               setDoseSlot(0);
               setDoseTime(medications.find((item) => item.id === id)?.scheduleTimes[0] ?? "");
+              setRecording(null);
+              setRecordingsByContext({});
+              setSaveState({ status: "idle", message: "" });
             }}
             onNotesChange={setNotes}
             onNext={() => setStep("instructions")}
@@ -188,7 +228,11 @@ export function TremorTestWorkflow({ medications }: { medications: MedicationOpt
           />
         </dl>
 
-        <RecordedPairStatus doseSlot={doseSlot} recordingsByContext={recordingsByContext} />
+        <RecordedPairStatus
+          dailyStatus={dailyDoseStatuses.find((item) => item.doseSlot === doseSlot)}
+          doseSlot={doseSlot}
+          recordingsByContext={recordingsByContext}
+        />
 
         {comparison ? <ComparisonPanel comparison={comparison} /> : null}
 
@@ -233,6 +277,7 @@ type SetupStepProps = {
   context: TremorTestContext;
   medicationId: string;
   medications: MedicationOption[];
+  dailyDoseStatuses: DailyDosePairingStatus[];
   doseTime: string;
   doseSlot: number;
   notes: string;
@@ -248,6 +293,7 @@ function SetupStep({
   context,
   medicationId,
   medications,
+  dailyDoseStatuses,
   doseTime,
   doseSlot,
   notes,
@@ -260,6 +306,7 @@ function SetupStep({
 }: SetupStepProps) {
   const selectedMedication = medications.find((item) => item.id === medicationId);
   const doseTimes = selectedMedication?.scheduleTimes.length ? selectedMedication.scheduleTimes : [""];
+  const selectedDailyStatus = dailyDoseStatuses.find((item) => item.doseSlot === doseSlot);
   return (
     <div>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -296,9 +343,25 @@ function SetupStep({
             <button className={`min-h-14 rounded-xl border px-3 py-2 text-left ${doseSlot === index ? "border-[#004349] bg-white ring-2 ring-[#bbeacf]" : "border-[#bfc8c9] bg-white/60"}`} key={`${index}-${time}`} onClick={() => onDoseSlotChange(index, time)} type="button">
               <span className="block text-xs font-bold uppercase tracking-wider text-[#6f797a]">Dose {index + 1}</span>
               <span className="mt-1 block text-sm font-bold text-[#161d1f]">{time || "Time not set"}</span>
+              {dailyDoseStatuses.some((item) => item.doseSlot === index) ? (
+                <span className="mt-1 block text-[11px] font-semibold text-[#20686f]">
+                  {dailyDoseStatuses.find((item) => item.doseSlot === index)?.pairId
+                    ? "Paired today"
+                    : dailyDoseStatuses.find((item) => item.doseSlot === index)?.before
+                      ? "Before saved today"
+                      : "After saved today"}
+                </span>
+              ) : null}
             </button>
           ))}
         </div>
+        {context === "after_medication" ? (
+          <div className={`mt-4 rounded-xl px-4 py-3 text-sm font-semibold ${selectedDailyStatus?.before ? "bg-[#bbeacf] text-[#244f3a]" : "bg-amber-50 text-amber-900"}`} role="status">
+            {selectedDailyStatus?.before
+              ? `Before-medication test found for Dose ${doseSlot + 1} today. Your after test will be linked automatically.`
+              : `No valid before-medication test has been saved for Dose ${doseSlot + 1} today yet.`}
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -692,22 +755,39 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function RecordedPairStatus({
+  dailyStatus,
   doseSlot,
   recordingsByContext,
 }: {
+  dailyStatus: DailyDosePairingStatus | undefined;
   doseSlot: number;
   recordingsByContext: Partial<Record<TremorTestContext, SensorRecording>>;
 }) {
   const before = recordingsByContext.before_medication;
   const after = recordingsByContext.after_medication;
+  const beforeValue = before
+    ? `${before.analysis.severityClass} - ${before.analysis.severityLabel}`
+    : dailyStatus?.before
+      ? "Saved today"
+      : "Missing";
+  const afterValue = after
+    ? `${after.analysis.severityClass} - ${after.analysis.severityLabel}`
+    : dailyStatus?.after
+      ? "Saved today"
+      : "Missing";
 
   return (
     <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
-      <p className="text-sm font-semibold text-slate-950">Dose {doseSlot + 1} comparison pair</p>
-      <p className="mt-1 text-xs leading-5 text-slate-500">Run both sides with the same dose number to compare medication response.</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-950">Dose {doseSlot + 1} comparison pair</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">Today · saved securely across app sessions</p>
+        </div>
+        {dailyStatus?.pairId ? <span className="rounded-full bg-[#bbeacf] px-3 py-1 text-xs font-bold text-[#244f3a]">Paired</span> : null}
+      </div>
       <div className="mt-3 grid gap-3 text-sm">
-        <PairStatusItem label="Before medication" recording={before} />
-        <PairStatusItem label="After medication" recording={after} />
+        <PairStatusItem label="Before medication" value={beforeValue} />
+        <PairStatusItem label="After medication" value={afterValue} />
       </div>
     </div>
   );
@@ -715,19 +795,15 @@ function RecordedPairStatus({
 
 function PairStatusItem({
   label,
-  recording,
+  value,
 }: {
   label: string;
-  recording: SensorRecording | undefined;
+  value: string;
 }) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-2 last:border-0 last:pb-0">
       <span className="text-slate-600">{label}</span>
-      <span className="text-right font-semibold text-slate-950">
-        {recording
-          ? `${recording.analysis.severityClass} - ${recording.analysis.severityLabel}`
-          : "Missing"}
-      </span>
+      <span className="text-right font-semibold text-slate-950">{value}</span>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use server";
 
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, gte, isNull, lt } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "@/db/client";
@@ -26,6 +26,7 @@ import { evaluateRecordingQuality } from "./sensor-recorder";
 import { analyzeTremorSignal } from "./signal-processing";
 import { analyzeTremorWithMl, type MlInferenceResult } from "./ml-client";
 import { hasRepeatedAboveBaseline } from "./personal-alert";
+import { getLocalDayBounds } from "./pairing";
 
 const sampleSchema = z.object({
   t: z.number().finite().min(0).max(20_000),
@@ -37,6 +38,7 @@ const sampleSchema = z.object({
 const recordingSchema = z.object({
   medicationId: z.string().uuid(),
   doseSlot: z.number().int().min(0).max(23),
+  timezoneOffsetMinutes: z.number().int().min(-840).max(840),
   context: z.enum(["before_medication", "after_medication"]),
   doseTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).or(z.literal("")),
   notes: z.string().trim().max(500),
@@ -67,6 +69,113 @@ export type SaveRecordingInput = z.infer<typeof recordingSchema>;
 export type SaveRecordingResult =
   | { ok: true; sessionId: string; pairId: string | null; mlStatus: "success" | "unavailable" | "failed" }
   | { ok: false; message: string };
+
+export type DailyDosePairingStatus = {
+  doseSlot: number;
+  before: { sessionId: string; recordedAt: string; severityLabel: string } | null;
+  after: { sessionId: string; recordedAt: string; severityLabel: string } | null;
+  pairId: string | null;
+};
+
+type DailyDosePairingStatusResult =
+  | { ok: true; statuses: DailyDosePairingStatus[] }
+  | { ok: false; message: string };
+
+const dailyDoseStatusSchema = z.object({
+  medicationId: z.string().uuid(),
+  timezoneOffsetMinutes: z.number().int().min(-840).max(840),
+  now: z.string().datetime(),
+});
+
+export async function getDailyDosePairingStatuses(
+  input: z.infer<typeof dailyDoseStatusSchema>,
+): Promise<DailyDosePairingStatusResult> {
+  const user = await requireRole("patient");
+  const parsed = dailyDoseStatusSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "The daily pairing request is invalid." };
+
+  const patient = await getPatientProfileForUser(user.id);
+  if (!patient) return { ok: false, message: "Complete patient onboarding first." };
+
+  const db = getDb();
+  const [medication] = await db
+    .select({ id: medications.id })
+    .from(medications)
+    .where(and(
+      eq(medications.id, parsed.data.medicationId),
+      eq(medications.patientProfileId, patient.id),
+      eq(medications.isActive, true),
+    ))
+    .limit(1);
+  if (!medication) return { ok: false, message: "Select one of your active medications." };
+
+  const day = getLocalDayBounds(new Date(parsed.data.now), parsed.data.timezoneOffsetMinutes);
+  const sessionRows = await db
+    .select({
+      id: tremorTestSessions.id,
+      doseSlot: tremorTestSessions.doseSlot,
+      context: tremorTestSessions.context,
+      startedAt: tremorTestSessions.startedAt,
+      severityLabel: tremorResults.severityLabel,
+    })
+    .from(tremorTestSessions)
+    .innerJoin(tremorResults, eq(tremorResults.sessionId, tremorTestSessions.id))
+    .where(and(
+      eq(tremorTestSessions.patientProfileId, patient.id),
+      eq(tremorTestSessions.medicationId, medication.id),
+      eq(tremorTestSessions.qualityStatus, "valid"),
+      gte(tremorTestSessions.startedAt, day.start),
+      lt(tremorTestSessions.startedAt, day.end),
+    ))
+    .orderBy(desc(tremorTestSessions.startedAt));
+
+  const sessionIds = sessionRows.map((row) => row.id);
+  const pairRows = sessionIds.length === 0
+    ? []
+    : await db
+      .select({
+        id: tremorTestPairs.id,
+        beforeSessionId: tremorTestPairs.beforeSessionId,
+        afterSessionId: tremorTestPairs.afterSessionId,
+      })
+      .from(tremorTestPairs)
+      .where(and(
+        eq(tremorTestPairs.patientProfileId, patient.id),
+        or(
+          inArray(tremorTestPairs.beforeSessionId, sessionIds),
+          inArray(tremorTestPairs.afterSessionId, sessionIds),
+        ),
+      ));
+
+  const bySlot = new Map<number, DailyDosePairingStatus>();
+  for (const row of sessionRows) {
+    if (row.doseSlot == null || row.context === "unpaired") continue;
+    const status = bySlot.get(row.doseSlot) ?? {
+      doseSlot: row.doseSlot,
+      before: null,
+      after: null,
+      pairId: null,
+    };
+    const value = {
+      sessionId: row.id,
+      recordedAt: row.startedAt.toISOString(),
+      severityLabel: row.severityLabel,
+    };
+    if (row.context === "before_medication" && !status.before) status.before = value;
+    if (row.context === "after_medication" && !status.after) status.after = value;
+    bySlot.set(row.doseSlot, status);
+  }
+
+  for (const status of bySlot.values()) {
+    const pair = pairRows.find((row) =>
+      row.beforeSessionId === status.before?.sessionId
+      && row.afterSessionId === status.after?.sessionId,
+    );
+    status.pairId = pair?.id ?? null;
+  }
+
+  return { ok: true, statuses: [...bySlot.values()].sort((a, b) => a.doseSlot - b.doseSlot) };
+}
 
 export async function saveTremorRecording(input: SaveRecordingInput): Promise<SaveRecordingResult> {
   const user = await requireRole("patient");
@@ -114,7 +223,11 @@ export async function saveTremorRecording(input: SaveRecordingInput): Promise<Sa
         durationMs: Math.round(canonicalQuality.durationMs),
         sampleCount: canonicalQuality.sampleCount,
         sampleRateHz: canonicalQuality.sampleRateHz,
-        deviceInfo: { userAgent: "captured-client-side", source: "DeviceMotionEvent" },
+        deviceInfo: {
+          userAgent: "captured-client-side",
+          source: "DeviceMotionEvent",
+          timezoneOffsetMinutes: data.timezoneOffsetMinutes,
+        },
         qualityStatus: canonicalQuality.status,
         qualityNotes,
         rawSamples: data.samples,
@@ -147,16 +260,33 @@ export async function saveTremorRecording(input: SaveRecordingInput): Promise<Sa
         return { sessionId: session.id, pairId: null, personalStatus: personalComparison.status };
       }
 
-      const [before] = await tx
-        .select({ id: tremorTestSessions.id, startedAt: tremorTestSessions.startedAt, tremorPower: tremorResults.tremorPower, doseSlot: tremorTestSessions.doseSlot })
+      const day = getLocalDayBounds(session.startedAt, data.timezoneOffsetMinutes);
+      const beforeCandidates = await tx
+        .select({ id: tremorTestSessions.id, startedAt: tremorTestSessions.startedAt, tremorPower: tremorResults.tremorPower })
         .from(tremorTestSessions)
         .innerJoin(tremorResults, eq(tremorResults.sessionId, tremorTestSessions.id))
-        .leftJoin(tremorTestPairs, eq(tremorTestPairs.beforeSessionId, tremorTestSessions.id))
-        .where(and(eq(tremorTestSessions.patientProfileId, patient.id), eq(tremorTestSessions.medicationId, medication.id), eq(tremorTestSessions.doseSlot, data.doseSlot), eq(tremorTestSessions.context, "before_medication"), eq(tremorTestSessions.qualityStatus, "valid"), eq(tremorResults.algorithmVersion, canonicalAnalysis.algorithmVersion), gte(tremorTestSessions.startedAt, new Date(session.startedAt.getTime() - 6 * 60 * 60 * 1_000)), isNull(tremorTestPairs.id)))
-        .orderBy(desc(tremorTestSessions.startedAt))
-        .limit(1);
+        .where(and(
+          eq(tremorTestSessions.patientProfileId, patient.id),
+          eq(tremorTestSessions.medicationId, medication.id),
+          eq(tremorTestSessions.doseSlot, data.doseSlot),
+          eq(tremorTestSessions.context, "before_medication"),
+          eq(tremorTestSessions.qualityStatus, "valid"),
+          eq(tremorResults.algorithmVersion, canonicalAnalysis.algorithmVersion),
+          gte(tremorTestSessions.startedAt, day.start),
+          lt(tremorTestSessions.startedAt, day.end),
+          lt(tremorTestSessions.startedAt, session.startedAt),
+        ))
+        .orderBy(desc(tremorTestSessions.startedAt));
 
-      if (!before || before.startedAt >= session.startedAt) return { sessionId: session.id, pairId: null, personalStatus: personalComparison.status };
+      const before = beforeCandidates[0];
+      if (!before) return { sessionId: session.id, pairId: null, personalStatus: personalComparison.status };
+
+      // One daily dose has one current comparison. Retakes replace that
+      // comparison while every raw before/after session remains in history.
+      await tx.delete(tremorTestPairs).where(inArray(
+        tremorTestPairs.beforeSessionId,
+        beforeCandidates.map((candidate) => candidate.id),
+      ));
       const improvementPercent = before.tremorPower > 0.0001 ? ((before.tremorPower - canonicalAnalysis.tremorPower) / before.tremorPower) * 100 : null;
       const [pair] = await tx.insert(tremorTestPairs).values({ patientProfileId: patient.id, medicationId: medication.id, beforeSessionId: before.id, afterSessionId: session.id, improvementPercent, responseWindowMinutes: Math.round((session.startedAt.getTime() - before.startedAt.getTime()) / 60_000) }).returning({ id: tremorTestPairs.id });
       return { sessionId: session.id, pairId: pair.id, personalStatus: personalComparison.status };

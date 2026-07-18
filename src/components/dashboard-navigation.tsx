@@ -33,12 +33,34 @@ function isActive(pathname: string, href: string) {
   return href === "/patient" || href === "/doctor" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function DashboardNavigation({ navItems }: { navItems: NavItem[] }) {
+export function DashboardNavigation({
+  navItems,
+  mode,
+}: {
+  navItems: NavItem[];
+  mode: "header" | "mobile-bottom";
+}) {
   const pathname = usePathname();
   const profileHref = navItems.find((item) => item.label.toLowerCase().includes("profile") || item.label.toLowerCase().includes("onboarding"))?.href ?? "/";
   const visibleItems = navItems
     .filter((item) => !item.label.toLowerCase().includes("onboarding") && !item.label.toLowerCase().includes("profile") && !item.label.toLowerCase().includes("privacy"))
     .sort((a, b) => navRank(a) - navRank(b));
+
+  if (mode === "mobile-bottom") {
+    if (visibleItems.length === 0) return null;
+
+    return (
+      <nav
+        aria-label="Mobile navigation"
+        className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-[#dce7e9] bg-white/95 px-2 pt-2 shadow-[0_-4px_20px_rgba(0,67,73,0.08)] backdrop-blur lg:hidden"
+        style={{ paddingBottom: "max(10px, env(safe-area-inset-bottom))" }}
+      >
+        {visibleItems.slice(0, 4).map((item) => (
+          <NavLink item={item} active={isActive(pathname, item.href)} key={item.href} />
+        ))}
+      </nav>
+    );
+  }
 
   return (
     <>
@@ -51,15 +73,6 @@ export function DashboardNavigation({ navItems }: { navItems: NavItem[] }) {
       <div className="lg:hidden">
         <ProfileMenu profileHref={profileHref} />
       </div>
-      {visibleItems.length > 0 ? (
-        <nav
-          aria-label="Mobile navigation"
-          className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-[#dce7e9] bg-white/95 px-2 pt-2 shadow-[0_-4px_20px_rgba(0,67,73,0.08)] backdrop-blur lg:hidden"
-          style={{ paddingBottom: "max(10px, env(safe-area-inset-bottom))" }}
-        >
-          {visibleItems.slice(0, 4).map((item) => <NavLink item={item} active={isActive(pathname, item.href)} key={item.href} />)}
-        </nav>
-      ) : null}
     </>
   );
 }
