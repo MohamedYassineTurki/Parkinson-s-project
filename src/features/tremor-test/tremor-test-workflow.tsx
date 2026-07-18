@@ -1,0 +1,751 @@
+"use client";
+
+import {
+  ArrowLeft,
+  ArrowRight,
+  AlertTriangle,
+  BarChart3,
+  CheckCircle2,
+  Clock,
+  Hand,
+  Pill,
+  Play,
+  RotateCcw,
+  Smartphone,
+  Waves,
+} from "lucide-react";
+import { useMemo, useState } from "react";
+import Link from "next/link";
+
+import { compareMedicationResponse } from "./comparison";
+import { saveTremorRecording } from "./actions";
+import {
+  evaluateRecordingQuality,
+  isDeviceMotionSupported,
+  recordAccelerometerSamples,
+  requestMotionPermission,
+} from "./sensor-recorder";
+import { analyzeTremorSignal } from "./signal-processing";
+import {
+  TEST_CONTEXTS,
+  type AccelerationSample,
+  type MedicationResponseComparison,
+  type SensorRecording,
+  type TremorAnalysisResult,
+  type TremorTestContext,
+  type TremorTestStep,
+} from "./types";
+import { APP_SAFETY_NOTICE } from "@/lib/safety";
+import { routes } from "@/lib/routes";
+
+const protocolSteps = [
+  "Sit down and keep both feet on the floor.",
+  "Extend one arm forward with the palm facing upward.",
+  "Place the smartphone flat on the palm.",
+  "Keep the arm and phone still after pressing start.",
+  "Hold the position for the full 10-second recording.",
+];
+
+type MedicationOption = { id: string; name: string; dose: string };
+
+export function TremorTestWorkflow({ medications }: { medications: MedicationOption[] }) {
+  const [step, setStep] = useState<TremorTestStep>("setup");
+  const [context, setContext] = useState<TremorTestContext>("before_medication");
+  const [medicationId, setMedicationId] = useState(medications[0]?.id ?? "");
+  const [medicationName, setMedicationName] = useState(
+    medications[0] ? `${medications[0].name} ${medications[0].dose}` : "",
+  );
+  const [doseTime, setDoseTime] = useState("");
+  const [notes, setNotes] = useState("");
+  const [recording, setRecording] = useState<SensorRecording | null>(null);
+  const [recordingsByContext, setRecordingsByContext] = useState<
+    Partial<Record<TremorTestContext, SensorRecording>>
+  >({});
+  const [saveState, setSaveState] = useState<{
+    status: "idle" | "saving" | "saved" | "error";
+    message: string;
+    sessionId?: string;
+  }>({ status: "idle", message: "" });
+
+  const selectedContext = useMemo(
+    () => TEST_CONTEXTS.find((item) => item.value === context) ?? TEST_CONTEXTS[0],
+    [context],
+  );
+  const comparison = useMemo(
+    () =>
+      compareMedicationResponse(
+        recordingsByContext.before_medication,
+        recordingsByContext.after_medication,
+      ),
+    [recordingsByContext],
+  );
+
+  async function handleRecordingComplete(completedRecording: SensorRecording) {
+    setRecording(completedRecording);
+    setRecordingsByContext((current) => ({
+      ...current,
+      [completedRecording.context]: completedRecording,
+    }));
+    setSaveState({ status: "saving", message: "Saving test result..." });
+    const result = await saveTremorRecording({
+      medicationId,
+      context: completedRecording.context,
+      doseTime,
+      notes,
+      startedAt: completedRecording.startedAt.toISOString(),
+      completedAt: completedRecording.completedAt.toISOString(),
+      samples: completedRecording.samples,
+      quality: completedRecording.quality,
+      analysis: completedRecording.analysis,
+    });
+    setSaveState(
+      result.ok
+        ? { status: "saved", message: result.pairId ? "Result saved and paired." : "Result saved.", sessionId: result.sessionId }
+        : { status: "error", message: result.message },
+    );
+  }
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[1fr_0.8fr]">
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <StepHeader step={step} />
+        <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
+          {APP_SAFETY_NOTICE}
+        </div>
+
+        {step === "setup" ? (
+          <SetupStep
+            context={context}
+            doseTime={doseTime}
+            medicationId={medicationId}
+            medications={medications}
+            notes={notes}
+            onContextChange={setContext}
+            onDoseTimeChange={setDoseTime}
+            onMedicationChange={(id, name) => {
+              setMedicationId(id);
+              setMedicationName(name);
+            }}
+            onNotesChange={setNotes}
+            onNext={() => setStep("instructions")}
+          />
+        ) : null}
+
+        {step === "instructions" ? (
+          <InstructionsStep
+            onBack={() => setStep("setup")}
+            onNext={() => setStep("ready")}
+          />
+        ) : null}
+
+        {step === "ready" ? (
+          <ReadyStep
+            context={context}
+            onBack={() => setStep("instructions")}
+            onRecordingComplete={handleRecordingComplete}
+            onReset={() => setStep("setup")}
+          />
+        ) : null}
+      </section>
+
+      <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold tracking-normal">Test summary</h2>
+        <dl className="mt-5 space-y-4">
+          <SummaryItem label="Context" value={selectedContext.label} />
+          <SummaryItem
+            label="Medication"
+            value={medicationName.trim() || "Not entered yet"}
+          />
+          <SummaryItem label="Dose time" value={doseTime || "Not entered yet"} />
+          <SummaryItem label="Duration" value="10 seconds" />
+          <SummaryItem
+            label="Signal source"
+            value="Smartphone accelerometer x/y/z"
+          />
+          <SummaryItem
+            label="Last recording"
+            value={
+              recording
+                ? `${recording.quality.sampleCount} samples, ${recording.quality.status}`
+                : "Not recorded yet"
+            }
+          />
+        </dl>
+
+        <RecordedPairStatus recordingsByContext={recordingsByContext} />
+
+        {comparison ? <ComparisonPanel comparison={comparison} /> : null}
+
+        {saveState.status !== "idle" ? (
+          <div className={`mt-5 rounded-lg border p-4 text-sm ${saveState.status === "error" ? "border-red-200 bg-red-50 text-red-800" : "border-teal-200 bg-teal-50 text-teal-900"}`} role="status">
+            <p>{saveState.message}</p>
+            {saveState.sessionId ? <Link className="mt-2 inline-block font-semibold underline" href={routes.patient.result(saveState.sessionId)}>View saved result</Link> : null}
+          </div>
+        ) : null}
+
+        {notes.trim() ? (
+          <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm font-medium text-slate-700">Patient notes</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{notes}</p>
+          </div>
+        ) : null}
+      </aside>
+    </div>
+  );
+}
+
+function StepHeader({ step }: { step: TremorTestStep }) {
+  const label =
+    step === "setup"
+      ? "Test setup"
+      : step === "instructions"
+        ? "Standardized position"
+        : "Ready to record";
+
+  return (
+    <div className="mb-6 flex items-start justify-between gap-4">
+      <div>
+        <p className="text-sm font-medium text-teal-700">Accelerometer test</p>
+        <h2 className="mt-1 text-xl font-semibold tracking-normal">{label}</h2>
+      </div>
+      <Smartphone className="size-7 text-slate-500" aria-hidden="true" />
+    </div>
+  );
+}
+
+type SetupStepProps = {
+  context: TremorTestContext;
+  medicationId: string;
+  medications: MedicationOption[];
+  doseTime: string;
+  notes: string;
+  onContextChange: (value: TremorTestContext) => void;
+  onMedicationChange: (id: string, name: string) => void;
+  onDoseTimeChange: (value: string) => void;
+  onNotesChange: (value: string) => void;
+  onNext: () => void;
+};
+
+function SetupStep({
+  context,
+  medicationId,
+  medications,
+  doseTime,
+  notes,
+  onContextChange,
+  onMedicationChange,
+  onDoseTimeChange,
+  onNotesChange,
+  onNext,
+}: SetupStepProps) {
+  return (
+    <div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {TEST_CONTEXTS.map((item) => (
+          <button
+            className={`rounded-lg border p-4 text-left ${
+              context === item.value
+                ? "border-teal-700 bg-teal-50"
+                : "border-slate-200 bg-slate-50 hover:border-teal-700"
+            }`}
+            key={item.value}
+            onClick={() => onContextChange(item.value)}
+            type="button"
+          >
+            <Pill className="size-5 text-teal-700" aria-hidden="true" />
+            <p className="mt-3 text-sm font-semibold text-slate-950">{item.label}</p>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              {item.description}
+            </p>
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="text-sm font-medium text-slate-700" htmlFor="medication">
+            Medication
+          </label>
+          <select
+            className="mt-2 min-h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-teal-700 focus:ring-2 focus:ring-teal-100"
+            id="medication"
+            onChange={(event) => {
+              const selected = medications.find((item) => item.id === event.target.value);
+              onMedicationChange(event.target.value, selected ? `${selected.name} ${selected.dose}` : "");
+            }}
+            value={medicationId}
+          >
+            {medications.length === 0 ? <option value="">Add an active medication first</option> : medications.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.dose}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-sm font-medium text-slate-700" htmlFor="dose-time">
+            {context === "after_medication" ? "Dose taken at" : "Next dose time"}
+          </label>
+          <input
+            className="mt-2 min-h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-teal-700 focus:ring-2 focus:ring-teal-100"
+            id="dose-time"
+            onChange={(event) => onDoseTimeChange(event.target.value)}
+            type="time"
+            value={doseTime}
+          />
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <label className="text-sm font-medium text-slate-700" htmlFor="test-notes">
+          Notes
+        </label>
+        <textarea
+          className="mt-2 min-h-24 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-teal-700 focus:ring-2 focus:ring-teal-100"
+          id="test-notes"
+          onChange={(event) => onNotesChange(event.target.value)}
+          placeholder="Optional: sleep, stress, caffeine, missed dose, unusual symptoms."
+          value={notes}
+        />
+      </div>
+
+      <div className="mt-6 flex justify-end">
+        <button
+          className="inline-flex items-center justify-center gap-2 rounded-md bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800"
+          disabled={!medicationId}
+          onClick={onNext}
+          type="button"
+        >
+          Continue
+          <ArrowRight className="size-4" aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function InstructionsStep({
+  onBack,
+  onNext,
+}: {
+  onBack: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div>
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-5">
+        <div className="flex items-center gap-3">
+          <div className="flex size-10 items-center justify-center rounded-lg bg-teal-700 text-white">
+            <Hand className="size-5" aria-hidden="true" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-950">
+              Standardized phone position
+            </p>
+            <p className="mt-1 text-sm text-slate-600">
+              The same position should be used for every test.
+            </p>
+          </div>
+        </div>
+
+        <ol className="mt-5 space-y-3">
+          {protocolSteps.map((item, index) => (
+            <li className="flex gap-3 text-sm leading-6 text-slate-700" key={item}>
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-teal-700">
+                {index + 1}
+              </span>
+              {item}
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-between">
+        <button
+          className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-teal-700 hover:text-teal-700"
+          onClick={onBack}
+          type="button"
+        >
+          <ArrowLeft className="size-4" aria-hidden="true" />
+          Back
+        </button>
+        <button
+          className="inline-flex items-center justify-center gap-2 rounded-md bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800"
+          onClick={onNext}
+          type="button"
+        >
+          I am in position
+          <ArrowRight className="size-4" aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ReadyStep({
+  context,
+  onBack,
+  onRecordingComplete,
+  onReset,
+}: {
+  context: TremorTestContext;
+  onBack: () => void;
+  onRecordingComplete: (recording: SensorRecording) => Promise<void>;
+  onReset: () => void;
+}) {
+  const [status, setStatus] = useState<
+    "idle" | "requesting_permission" | "recording" | "complete" | "error"
+  >("idle");
+  const [samples, setSamples] = useState<AccelerationSample[]>([]);
+  const [recording, setRecording] = useState<SensorRecording | null>(null);
+  const [error, setError] = useState("");
+
+  async function startRecording() {
+    setError("");
+    setRecording(null);
+    setSamples([]);
+
+    if (!isDeviceMotionSupported()) {
+      setStatus("error");
+      setError("This browser does not support DeviceMotion accelerometer events.");
+      return;
+    }
+
+    setStatus("requesting_permission");
+    const permission = await requestMotionPermission();
+
+    if (permission !== "granted") {
+      setStatus("error");
+      setError("Motion permission was not granted.");
+      return;
+    }
+
+    const startedAt = new Date();
+    setStatus("recording");
+    const recordedSamples = await recordAccelerometerSamples((sample) => {
+      setSamples((current) => [...current, sample]);
+    });
+    const completedAt = new Date();
+    const quality = evaluateRecordingQuality(recordedSamples);
+    const analysis = analyzeTremorSignal(recordedSamples);
+    const completedRecording = {
+      context,
+      startedAt,
+      completedAt,
+      samples: recordedSamples,
+      quality,
+      analysis,
+    };
+
+    setRecording(completedRecording);
+    await onRecordingComplete(completedRecording);
+    setStatus("complete");
+  }
+
+  const latestSample = samples[samples.length - 1];
+  const elapsedSeconds = latestSample ? Math.min(latestSample.t / 1000, 10) : 0;
+  const progressPercent = Math.round((elapsedSeconds / 10) * 100);
+
+  return (
+    <div>
+      <div className="rounded-lg border border-teal-200 bg-teal-50 p-5">
+        <CheckCircle2 className="size-7 text-teal-700" aria-hidden="true" />
+        <h2 className="mt-4 text-lg font-semibold tracking-normal text-teal-950">
+          Position confirmed
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-teal-900">
+          Keep the smartphone flat on your palm and press start. The browser will
+          request motion permission before recording.
+        </p>
+      </div>
+
+      <div className="mt-5 rounded-lg border border-slate-200 bg-white p-4">
+        <div className="flex items-center gap-3">
+          <Clock className="size-5 text-teal-700" aria-hidden="true" />
+          <p className="text-sm font-medium text-slate-700">
+            Recording duration: 10 seconds
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-lg border border-slate-200 bg-white p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-slate-950">
+              Accelerometer recorder
+            </p>
+            <p className="mt-1 text-sm text-slate-600">
+              Captures timestamped x, y, z motion samples from DeviceMotion events.
+            </p>
+          </div>
+          <button
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+            disabled={status === "requesting_permission" || status === "recording"}
+            onClick={startRecording}
+            type="button"
+          >
+            <Play className="size-4" aria-hidden="true" />
+            {status === "recording" ? "Recording..." : "Start recording"}
+          </button>
+        </div>
+
+        {status === "requesting_permission" ? (
+          <p className="mt-4 text-sm text-slate-600">Requesting motion permission...</p>
+        ) : null}
+
+        {status === "recording" ? (
+          <div className="mt-5">
+            <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full bg-teal-700 transition-all"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+            <p className="mt-2 text-sm text-slate-600">
+              {elapsedSeconds.toFixed(1)}s captured, {samples.length} samples
+            </p>
+          </div>
+        ) : null}
+
+        {status === "error" ? (
+          <div className="mt-5 rounded-lg border border-red-200 bg-red-50 p-4">
+            <div className="flex gap-3">
+              <AlertTriangle className="size-5 shrink-0 text-red-600" aria-hidden="true" />
+              <p className="text-sm leading-6 text-red-900">{error}</p>
+            </div>
+          </div>
+        ) : null}
+
+        {recording ? <RecordingResult recording={recording} /> : null}
+      </div>
+
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-between">
+        <button
+          className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-teal-700 hover:text-teal-700"
+          onClick={onBack}
+          type="button"
+        >
+          <ArrowLeft className="size-4" aria-hidden="true" />
+          Back
+        </button>
+        <button
+          className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-teal-700 hover:text-teal-700"
+          onClick={onReset}
+          type="button"
+        >
+          <RotateCcw className="size-4" aria-hidden="true" />
+          Restart setup
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RecordingResult({ recording }: { recording: SensorRecording }) {
+  const { analysis, quality } = recording;
+
+  return (
+    <div
+      className={`mt-5 rounded-lg border p-4 ${
+        quality.status === "valid"
+          ? "border-teal-200 bg-teal-50"
+          : "border-amber-200 bg-amber-50"
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        {quality.status === "valid" ? (
+          <CheckCircle2 className="size-5 shrink-0 text-teal-700" aria-hidden="true" />
+        ) : (
+          <AlertTriangle className="size-5 shrink-0 text-amber-700" aria-hidden="true" />
+        )}
+        <div>
+          <p className="text-sm font-semibold text-slate-950">
+            {quality.status === "valid"
+              ? "Recording quality looks usable"
+              : "Recording should be repeated"}
+          </p>
+          <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+            <Metric label="Samples" value={String(quality.sampleCount)} />
+            <Metric
+              label="Duration"
+              value={`${(quality.durationMs / 1000).toFixed(1)}s`}
+            />
+            <Metric
+              label="Sample rate"
+              value={`${quality.sampleRateHz.toFixed(1)} Hz`}
+            />
+          </dl>
+          {quality.notes.length > 0 ? (
+            <ul className="mt-3 space-y-1 text-sm leading-6 text-slate-700">
+              {quality.notes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </div>
+      <TremorAnalysisPanel analysis={analysis} />
+    </div>
+  );
+}
+
+function TremorAnalysisPanel({ analysis }: { analysis: TremorAnalysisResult }) {
+  return (
+    <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex items-start gap-3">
+        <Waves className="size-5 shrink-0 text-teal-700" aria-hidden="true" />
+        <div className="w-full">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-950">
+                Signal analysis
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                Deterministic accelerometer analysis, not a diagnosis.
+              </p>
+            </div>
+            <span className="rounded-md bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-700">
+              {analysis.algorithmVersion}
+            </span>
+          </div>
+
+          <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+            <Metric
+              label="Severity"
+              value={`${analysis.severityClass} - ${analysis.severityLabel}`}
+            />
+            <Metric
+              label="Dominant frequency"
+              value={
+                analysis.dominantFrequencyHz == null
+                  ? "Not detected"
+                  : `${analysis.dominantFrequencyHz.toFixed(2)} Hz`
+              }
+            />
+            <Metric label="Tremor power" value={analysis.tremorPower.toFixed(2)} />
+            <Metric label="RMS intensity" value={analysis.rmsIntensity.toFixed(2)} />
+            <Metric
+              label="Spectral concentration"
+              value={`${Math.round(analysis.spectralConcentration * 100)}%`}
+            />
+            <Metric label="Sliding windows" value={String(analysis.windowCount)} />
+          </div>
+
+          {analysis.notes.length > 0 ? (
+            <ul className="mt-3 space-y-1 text-sm leading-6 text-slate-600">
+              {analysis.notes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-slate-500">{label}</dt>
+      <dd className="mt-1 font-semibold text-slate-950">{value}</dd>
+    </div>
+  );
+}
+
+function RecordedPairStatus({
+  recordingsByContext,
+}: {
+  recordingsByContext: Partial<Record<TremorTestContext, SensorRecording>>;
+}) {
+  const before = recordingsByContext.before_medication;
+  const after = recordingsByContext.after_medication;
+
+  return (
+    <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <p className="text-sm font-semibold text-slate-950">Comparison pair</p>
+      <div className="mt-3 grid gap-3 text-sm">
+        <PairStatusItem label="Before medication" recording={before} />
+        <PairStatusItem label="After medication" recording={after} />
+      </div>
+    </div>
+  );
+}
+
+function PairStatusItem({
+  label,
+  recording,
+}: {
+  label: string;
+  recording: SensorRecording | undefined;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-2 last:border-0 last:pb-0">
+      <span className="text-slate-600">{label}</span>
+      <span className="text-right font-semibold text-slate-950">
+        {recording
+          ? `${recording.analysis.severityClass} - ${recording.analysis.severityLabel}`
+          : "Missing"}
+      </span>
+    </div>
+  );
+}
+
+function ComparisonPanel({
+  comparison,
+}: {
+  comparison: MedicationResponseComparison;
+}) {
+  const improvementLabel =
+    comparison.improvementPercent == null
+      ? "Not available"
+      : `${comparison.improvementPercent.toFixed(1)}%`;
+  const statusLabel = {
+    improved: "Improved",
+    unchanged: "Similar",
+    worse: "Higher after medication",
+    not_comparable: "Limited comparison",
+  }[comparison.status];
+
+  return (
+    <div className="mt-5 rounded-lg border border-teal-200 bg-teal-50 p-4">
+      <div className="flex items-start gap-3">
+        <BarChart3 className="size-5 shrink-0 text-teal-700" aria-hidden="true" />
+        <div className="w-full">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-teal-950">
+                Before/after comparison
+              </p>
+              <p className="mt-1 text-sm leading-6 text-teal-900">
+                {comparison.message}
+              </p>
+            </div>
+            <span className="rounded-md bg-white px-3 py-1 text-sm font-semibold text-teal-800">
+              {statusLabel}
+            </span>
+          </div>
+
+          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+            <Metric label="Before power" value={comparison.beforePower.toFixed(2)} />
+            <Metric label="After power" value={comparison.afterPower.toFixed(2)} />
+            <Metric
+              label="Before severity"
+              value={String(comparison.beforeSeverityClass)}
+            />
+            <Metric
+              label="After severity"
+              value={String(comparison.afterSeverityClass)}
+            />
+            <Metric label="Improvement" value={improvementLabel} />
+          </dl>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SummaryItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border-b border-slate-100 pb-3">
+      <dt className="text-sm text-slate-500">{label}</dt>
+      <dd className="mt-1 text-sm font-semibold text-slate-900">{value}</dd>
+    </div>
+  );
+}

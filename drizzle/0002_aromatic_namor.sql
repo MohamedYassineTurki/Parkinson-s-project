@@ -1,0 +1,1 @@
+ALTER TABLE "user" ADD COLUMN "role" "user_role" DEFAULT 'patient' NOT NULL;
