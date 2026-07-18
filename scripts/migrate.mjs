@@ -9,9 +9,20 @@ if (!connectionString) {
 }
 
 const client = postgres(connectionString, { max: 1 });
+const db = drizzle(client);
 
 try {
-  await migrate(drizzle(client), { migrationsFolder: "./drizzle" });
+  await migrate(db, { migrationsFolder: "./drizzle" });
+
+  const [userTable] = await client`
+    select to_regclass('public."user"') as table_name
+  `;
+
+  if (!userTable?.table_name) {
+    throw new Error('Database migrations completed, but public."user" was not created.');
+  }
+
+  console.log('Database migrations completed. Found public."user".');
 } finally {
   await client.end();
 }

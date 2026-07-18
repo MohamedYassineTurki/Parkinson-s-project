@@ -25,7 +25,9 @@ BETTER_AUTH_URL=https://your-production-domain.example
 RUN_DB_MIGRATIONS=true
 ```
 
-`BETTER_AUTH_URL` must exactly match the HTTPS domain configured for the application. `RUN_DB_MIGRATIONS=true` runs the committed Drizzle migrations before the server starts. This is appropriate for the default single-replica deployment. For multiple replicas, run migrations as a one-off release task and set it to `false` on the web service.
+`BETTER_AUTH_URL` must exactly match the HTTPS domain configured for the application. Database migrations run by default when the container starts, and `RUN_DB_MIGRATIONS=true` makes that explicit. This is appropriate for the default single-replica deployment. For multiple replicas, run migrations as a one-off release task and set `RUN_DB_MIGRATIONS=false` on the web service.
+
+If signup fails with `relation "user" does not exist`, the app reached PostgreSQL before migrations created Better Auth's tables. Check the deploy logs for `Running database migrations...` and `Database migrations completed. Found public."user".`, then verify the application is using the same `DATABASE_URL` as the PostgreSQL service.
 
 ## Deploy
 
