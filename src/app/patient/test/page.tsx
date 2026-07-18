@@ -28,11 +28,9 @@ export default async function PatientTestPage() {
       description="Choose a dose, record before medication, then record after the same dose to create a clear comparison."
       navItems={[
         { href: routes.patient.root, label: "Dashboard" },
-        { href: routes.patient.onboarding, label: "Onboarding" },
         { href: routes.patient.medications, label: "Medications" },
-        { href: routes.patient.privacy, label: "Privacy" },
-        { href: routes.patient.history, label: "History" },
         { href: routes.patient.test, label: "Run test" },
+        { href: routes.patient.history, label: "History" },
         { href: routes.patient.onboarding, label: "Profile" },
       ]}
       title="Run tremor test"

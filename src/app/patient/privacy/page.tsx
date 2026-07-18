@@ -19,10 +19,10 @@ export default async function PatientPrivacyPage() {
       description="Control doctor access and review the safety boundaries for tremor monitoring."
       navItems={[
         { href: routes.patient.root, label: "Dashboard" },
-        { href: routes.patient.onboarding, label: "Onboarding" },
         { href: routes.patient.medications, label: "Medications" },
         { href: routes.patient.test, label: "Run test" },
         { href: routes.patient.history, label: "History" },
+        { href: routes.patient.onboarding, label: "Profile" },
       ]}
       title="Privacy and sharing"
     >

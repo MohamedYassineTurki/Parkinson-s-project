@@ -20,9 +20,7 @@ export default async function PatientHistoryPage() {
       description="Review tremor severity, signal quality, and medication response over time."
       navItems={[
         { href: routes.patient.root, label: "Dashboard" },
-        { href: routes.patient.onboarding, label: "Onboarding" },
         { href: routes.patient.medications, label: "Medications" },
-        { href: routes.patient.privacy, label: "Privacy" },
         { href: routes.patient.test, label: "Run test" },
         { href: routes.patient.history, label: "History" },
         { href: routes.patient.onboarding, label: "Profile" },
