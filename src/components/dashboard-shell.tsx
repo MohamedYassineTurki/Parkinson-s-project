@@ -18,12 +18,17 @@ export function DashboardShell({
   children: ReactNode;
 }) {
   return (
-    <main className="min-h-screen bg-[#f4fafd] pb-24 text-[#161d1f] sm:pb-0">
+    <main className="min-h-screen bg-[#f4fafd] pb-28 text-[#161d1f] lg:pb-0">
       <header className="sticky top-0 z-30 border-b border-[#dce7e9] bg-[#f4fafd]/95 backdrop-blur">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-4 sm:px-8">
-          <Link className="flex min-h-12 items-center gap-2.5" href={navItems[0]?.href ?? "/"}>
-            <span className="flex size-10 items-center justify-center rounded-full bg-[#004349] text-white shadow-sm"><Activity className="size-5" aria-hidden="true" /></span>
-            <span><span className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-[#3f686b]">Parkinson Project</span><span className="block text-base font-bold tracking-tight text-[#004349]">SteadyPath</span></span>
+          <Link className="flex min-h-12 min-w-0 shrink-0 items-center gap-3" href={navItems[0]?.href ?? "/"}>
+            <span className="flex size-12 items-center justify-center rounded-full bg-[#004349] text-white shadow-sm">
+              <Activity className="size-6" aria-hidden="true" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-[#3f686b]">Parkinson Project</span>
+              <span className="block text-xl font-bold leading-tight tracking-tight text-[#004349]">SteadyPath</span>
+            </span>
           </Link>
           <DashboardNavigation navItems={navItems} />
         </div>
