@@ -1,6 +1,7 @@
 "use client";
 
-import { Plus, Save, Trash2 } from "lucide-react";
+import { ArrowRight, Info, Plus, Save, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useActionState, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 
@@ -9,6 +10,7 @@ import {
   type PatientOnboardingState,
 } from "./actions";
 import { DOCTOR_SHARING_CONSENT_TEXT } from "@/lib/safety";
+import { routes } from "@/lib/routes";
 
 const defaultScheduleTimes = ["08:00", "14:00", "20:00"];
 const initialPatientOnboardingState: PatientOnboardingState = { status: "idle", message: "", errors: {} };
@@ -43,6 +45,16 @@ export function PatientOnboardingForm() {
 
   return (
     <form action={formAction} className="space-y-6">
+      <div className="flex items-start gap-3 rounded-2xl border border-[#8fd1d9] bg-[#eef5f7] p-4 text-[#004349]" role="status">
+        <Info className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
+        <div>
+          <p className="font-bold">Complete your setup to unlock your workspace</p>
+          <p className="mt-1 text-sm leading-6 text-[#3f484a]">
+            Your dashboard, medication tools, history, and tremor tests will become
+            available after you save the required patient and medication information.
+          </p>
+        </div>
+      </div>
       {currentState.message ? (
         <div
           className={`rounded-lg border p-4 text-sm ${
@@ -51,7 +63,14 @@ export function PatientOnboardingForm() {
               : "border-red-200 bg-red-50 text-red-900"
           }`}
         >
-          {currentState.message}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>{currentState.message}</span>
+            {currentState.status === "success" ? (
+              <Link className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-[#004349] px-4 text-sm font-bold text-white" href={routes.patient.root}>
+                Open dashboard <ArrowRight className="size-4" aria-hidden="true" />
+              </Link>
+            ) : null}
+          </div>
         </div>
       ) : null}
 

@@ -10,10 +10,7 @@ export default async function PatientOnboardingPage() {
     <DashboardShell
       description="Collect patient profile, medication schedule, and optional doctor connection."
       navItems={[
-        { href: routes.patient.root, label: "Dashboard" },
-        { href: routes.patient.privacy, label: "Privacy" },
-        { href: routes.patient.test, label: "Run test" },
-        { href: routes.patient.history, label: "History" },
+        { href: routes.patient.onboarding, label: "Onboarding" },
       ]}
       title="Patient onboarding"
     >
