@@ -1,28 +1,36 @@
 "use client";
 
+import Link from "next/link";
 import {
+  Accessibility,
   ArrowLeft,
   ArrowRight,
-  AlertTriangle,
-  BarChart3,
+  Armchair,
+  Check,
   CheckCircle2,
-  Clock,
+  ChevronDown,
+  CircleHelp,
+  Clock3,
   Hand,
+  Info,
+  Link2,
   Pill,
   Play,
   RotateCcw,
+  ShieldCheck,
   Smartphone,
+  Table2,
+  TrendingDown,
   Waves,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 
-import { compareMedicationResponse } from "./comparison";
 import {
   getDailyDosePairingStatuses,
   saveTremorRecording,
   type DailyDosePairingStatus,
+  type SavedPairComparison,
 } from "./actions";
 import {
   evaluateRecordingQuality,
@@ -32,27 +40,34 @@ import {
   requestMotionPermission,
 } from "./sensor-recorder";
 import { analyzeTremorSignal } from "./signal-processing";
-import {
-  TEST_CONTEXTS,
-  type AccelerationSample,
-  type MedicationResponseComparison,
-  type SensorRecording,
-  type TremorAnalysisResult,
-  type TremorTestContext,
-  type TremorTestStep,
+import type {
+  AccelerationSample,
+  SensorRecording,
+  TremorTestContext,
+  TremorTestStep,
 } from "./types";
 import { APP_SAFETY_NOTICE } from "@/lib/safety";
 import { routes } from "@/lib/routes";
 
-const protocolSteps = [
-  "Sit down and keep both feet on the floor.",
-  "Extend one arm forward with the palm facing upward.",
-  "Place the smartphone flat on the palm.",
-  "Keep the arm and phone still after pressing start.",
-  "Hold the position for the full 10-second recording.",
-];
+type MedicationOption = {
+  id: string;
+  name: string;
+  dose: string;
+  scheduleTimes: string[];
+};
 
-type MedicationOption = { id: string; name: string; dose: string; scheduleTimes: string[] };
+type SavedOutcome = {
+  kind: "before_saved" | "after_unpaired" | "paired";
+  sessionId: string;
+  recording: SensorRecording;
+  mlStatus: "success" | "unavailable" | "failed";
+  comparison: SavedPairComparison | null;
+};
+
+type WorkflowOutcome =
+  | SavedOutcome
+  | { kind: "invalid"; recording: SensorRecording }
+  | { kind: "save_error"; recording: SensorRecording; message: string };
 
 async function loadDailyDoseStatuses(medicationId: string) {
   if (!medicationId) return [];
@@ -69,211 +84,184 @@ export function TremorTestWorkflow({ medications }: { medications: MedicationOpt
   const [step, setStep] = useState<TremorTestStep>("setup");
   const [context, setContext] = useState<TremorTestContext>("before_medication");
   const [medicationId, setMedicationId] = useState(medications[0]?.id ?? "");
-  const [medicationName, setMedicationName] = useState(
-    medications[0] ? `${medications[0].name} ${medications[0].dose}` : "",
-  );
   const [doseTime, setDoseTime] = useState(medications[0]?.scheduleTimes[0] ?? "");
   const [doseSlot, setDoseSlot] = useState(0);
   const [dailyDoseStatuses, setDailyDoseStatuses] = useState<DailyDosePairingStatus[]>([]);
   const [notes, setNotes] = useState("");
-  const [recording, setRecording] = useState<SensorRecording | null>(null);
-  const [recordingsByContext, setRecordingsByContext] = useState<
-    Partial<Record<TremorTestContext, SensorRecording>>
-  >({});
-  const [saveState, setSaveState] = useState<{
-    status: "idle" | "saving" | "saved" | "error";
-    message: string;
-    sessionId?: string;
-  }>({ status: "idle", message: "" });
+  const [outcome, setOutcome] = useState<WorkflowOutcome | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
 
-  const selectedContext = useMemo(
-    () => TEST_CONTEXTS.find((item) => item.value === context) ?? TEST_CONTEXTS[0],
-    [context],
-  );
-  const comparison = useMemo(
-    () =>
-      compareMedicationResponse(
-        recordingsByContext.before_medication,
-        recordingsByContext.after_medication,
-      ),
-    [recordingsByContext],
-  );
+  const selectedMedication = medications.find((item) => item.id === medicationId);
+  const medicationLabel = selectedMedication
+    ? `${selectedMedication.name} · ${selectedMedication.dose}`
+    : "Medication";
 
   useEffect(() => {
     let cancelled = false;
-    void loadDailyDoseStatuses(medicationId).then((statuses) => {
-      if (!cancelled) setDailyDoseStatuses(statuses);
-    }).catch(() => {
-      if (!cancelled) setDailyDoseStatuses([]);
-    });
+    void loadDailyDoseStatuses(medicationId)
+      .then((statuses) => {
+        if (!cancelled) setDailyDoseStatuses(statuses);
+      })
+      .catch(() => {
+        if (!cancelled) setDailyDoseStatuses([]);
+      });
     return () => {
       cancelled = true;
     };
   }, [medicationId]);
 
-  async function handleRecordingComplete(completedRecording: SensorRecording) {
-    setRecording(completedRecording);
-    setRecordingsByContext((current) => ({
-      ...current,
-      [completedRecording.context]: completedRecording,
-    }));
-    setSaveState({ status: "saving", message: "Saving test result..." });
-    const result = await saveTremorRecording({
-      medicationId,
-      doseSlot,
-      timezoneOffsetMinutes: new Date().getTimezoneOffset(),
-      context: completedRecording.context,
-      doseTime,
-      notes,
-      startedAt: completedRecording.startedAt.toISOString(),
-      completedAt: completedRecording.completedAt.toISOString(),
-      samples: completedRecording.samples,
-      quality: completedRecording.quality,
-      analysis: completedRecording.analysis,
-    });
-    if (result.ok) {
-      setDailyDoseStatuses(await loadDailyDoseStatuses(medicationId));
-      const pairingMessage = result.pairId
-        ? "Result saved and paired with today's before-medication test for this dose."
-        : completedRecording.context === "after_medication"
-          ? "Result saved, but no valid before-medication test was found today for this medication and dose."
-          : "Before-medication result saved. You can close the app and return after this same dose.";
-      setSaveState({
-        status: "saved",
-        message: `${pairingMessage}${result.mlStatus === "success" ? " Experimental ML analysis completed." : " ML was unavailable, so the deterministic result was saved safely."}`,
-        sessionId: result.sessionId,
+  async function handleRecordingComplete(recording: SensorRecording) {
+    if (recording.quality.status !== "valid") {
+      setOutcome({ kind: "invalid", recording });
+      return;
+    }
+
+    try {
+      const result = await saveTremorRecording({
+        medicationId,
+        doseSlot,
+        timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+        context: recording.context,
+        doseTime,
+        notes,
+        startedAt: recording.startedAt.toISOString(),
+        completedAt: recording.completedAt.toISOString(),
+        samples: recording.samples,
+        quality: recording.quality,
+        analysis: recording.analysis,
       });
-    } else {
-      setSaveState({ status: "error", message: result.message });
+
+      if (!result.ok) {
+        setOutcome({ kind: "save_error", recording, message: result.message });
+        return;
+      }
+
+      setDailyDoseStatuses(await loadDailyDoseStatuses(medicationId));
+      setOutcome({
+        kind: result.pairId ? "paired" : context === "after_medication" ? "after_unpaired" : "before_saved",
+        sessionId: result.sessionId,
+        recording,
+        mlStatus: result.mlStatus,
+        comparison: result.pairComparison,
+      });
+    } catch {
+      setOutcome({
+        kind: "save_error",
+        recording,
+        message: "The result could not be saved. Check your connection and try again.",
+      });
     }
   }
 
+  function retake() {
+    setOutcome(null);
+    setStep("ready");
+  }
+
+  function reviewPosition() {
+    setOutcome(null);
+    setStep("instructions");
+  }
+
+  if (outcome) {
+    return (
+      <OutcomeScreen
+        doseSlot={doseSlot}
+        medicationLabel={medicationLabel}
+        onHelp={() => setShowHelp(true)}
+        onRetake={retake}
+        onReviewPosition={reviewPosition}
+        outcome={outcome}
+      >
+        {showHelp ? <HelpSheet onClose={() => setShowHelp(false)} /> : null}
+      </OutcomeScreen>
+    );
+  }
+
   return (
-    <div className="grid gap-5 lg:grid-cols-[1fr_0.8fr]">
-      <section className="rounded-2xl border border-[#dce7e9] bg-white p-5 shadow-[0_4px_18px_rgba(0,67,73,0.06)] sm:p-7">
-        <StepHeader step={step} />
-        <div className="mb-6 rounded-xl border border-[#dce7e9] bg-[#eef5f7] p-4 text-sm leading-6 text-[#3f484a]">
-          {APP_SAFETY_NOTICE}
-        </div>
-
-        {step === "setup" ? (
-          <SetupStep
-            context={context}
-            doseTime={doseTime}
-            doseSlot={doseSlot}
-            medicationId={medicationId}
-            medications={medications}
-            dailyDoseStatuses={dailyDoseStatuses}
-            notes={notes}
-            onContextChange={(nextContext) => {
-              setContext(nextContext);
-              setRecording(null);
-            }}
-            onDoseTimeChange={setDoseTime}
-            onDoseSlotChange={(slot, time) => {
-              setDoseSlot(slot);
-              setDoseTime(time);
-              setRecording(null);
-              setRecordingsByContext({});
-            }}
-            onMedicationChange={(id, name) => {
-              setMedicationId(id);
-              setMedicationName(name);
-              setDoseSlot(0);
-              setDoseTime(medications.find((item) => item.id === id)?.scheduleTimes[0] ?? "");
-              setRecording(null);
-              setRecordingsByContext({});
-              setSaveState({ status: "idle", message: "" });
-            }}
-            onNotesChange={setNotes}
-            onNext={() => setStep("instructions")}
-          />
-        ) : null}
-
-        {step === "instructions" ? (
-          <InstructionsStep
-            onBack={() => setStep("setup")}
-            onNext={() => setStep("ready")}
-          />
-        ) : null}
-
-        {step === "ready" ? (
-          <ReadyStep
-            context={context}
-            onBack={() => setStep("instructions")}
-            onRecordingComplete={handleRecordingComplete}
-            onReset={() => setStep("setup")}
-          />
-        ) : null}
-      </section>
-
-      <aside className="rounded-2xl border border-[#dce7e9] bg-white p-5 shadow-[0_4px_18px_rgba(0,67,73,0.06)] sm:p-6">
-        <h2 className="text-lg font-bold tracking-tight text-[#004349]">Test summary</h2>
-        <dl className="mt-5 space-y-4">
-          <SummaryItem label="Context" value={selectedContext.label} />
-          <SummaryItem
-            label="Medication"
-            value={medicationName.trim() || "Not entered yet"}
-          />
-          <SummaryItem label="Dose time" value={doseTime || "Not entered yet"} />
-          <SummaryItem label="Dose cycle" value={`Dose ${doseSlot + 1} of ${Math.max(medications.find((item) => item.id === medicationId)?.scheduleTimes.length ?? 0, 1)}`} />
-          <SummaryItem label="Duration" value="10 seconds" />
-          <SummaryItem
-            label="Signal source"
-            value="Smartphone accelerometer x/y/z"
-          />
-          <SummaryItem
-            label="Last recording"
-            value={
-              recording
-                ? `${recording.quality.sampleCount} samples, ${recording.quality.status}`
-                : "Not recorded yet"
-            }
-          />
-        </dl>
-
-        <RecordedPairStatus
-          dailyStatus={dailyDoseStatuses.find((item) => item.doseSlot === doseSlot)}
+    <main className="min-h-[100dvh] bg-[#f4fafd] text-[#161d1f]">
+      {step === "setup" ? (
+        <SetupStep
+          context={context}
+          dailyDoseStatuses={dailyDoseStatuses}
           doseSlot={doseSlot}
-          recordingsByContext={recordingsByContext}
+          doseTime={doseTime}
+          medicationId={medicationId}
+          medications={medications}
+          notes={notes}
+          onContextChange={setContext}
+          onDoseSlotChange={(slot, time) => {
+            setDoseSlot(slot);
+            setDoseTime(time);
+          }}
+          onDoseTimeChange={setDoseTime}
+          onHelp={() => setShowHelp(true)}
+          onMedicationChange={(id) => {
+            const medication = medications.find((item) => item.id === id);
+            setMedicationId(id);
+            setDoseSlot(0);
+            setDoseTime(medication?.scheduleTimes[0] ?? "");
+          }}
+          onNext={() => setStep("instructions")}
+          onNotesChange={setNotes}
         />
+      ) : null}
 
-        {comparison ? <ComparisonPanel comparison={comparison} /> : null}
+      {step === "instructions" ? (
+        <InstructionsStep
+          context={context}
+          doseSlot={doseSlot}
+          medicationLabel={medicationLabel}
+          onBack={() => setStep("setup")}
+          onHelp={() => setShowHelp(true)}
+          onNext={() => setStep("ready")}
+        />
+      ) : null}
 
-        {saveState.status !== "idle" ? (
-          <div className={`mt-5 rounded-lg border p-4 text-sm ${saveState.status === "error" ? "border-red-200 bg-red-50 text-red-800" : "border-teal-200 bg-teal-50 text-teal-900"}`} role="status">
-            <p>{saveState.message}</p>
-            {saveState.sessionId ? <Link className="mt-2 inline-block font-semibold underline" href={routes.patient.result(saveState.sessionId)}>View saved result</Link> : null}
-          </div>
-        ) : null}
+      {step === "ready" ? (
+        <ReadyStep
+          context={context}
+          onBack={() => setStep("instructions")}
+          onHelp={() => setShowHelp(true)}
+          onRecordingComplete={handleRecordingComplete}
+        />
+      ) : null}
 
-        {notes.trim() ? (
-          <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <p className="text-sm font-medium text-slate-700">Patient notes</p>
-            <p className="mt-2 text-sm leading-6 text-slate-600">{notes}</p>
-          </div>
-        ) : null}
-      </aside>
-    </div>
+      {showHelp ? <HelpSheet onClose={() => setShowHelp(false)} /> : null}
+    </main>
   );
 }
 
-function StepHeader({ step }: { step: TremorTestStep }) {
-  const label =
-    step === "setup"
-      ? "Test setup"
-      : step === "instructions"
-        ? "Standardized position"
-        : "Ready to record";
-
+function TestHeader({
+  step,
+  onBack,
+  onHelp,
+  closeHref,
+}: {
+  step: 1 | 2 | 3;
+  onBack?: () => void;
+  onHelp: () => void;
+  closeHref?: string;
+}) {
+  const controlClass = "flex size-12 items-center justify-center rounded-full text-[#004349] transition active:bg-[#bbeacf]/35";
   return (
-    <div className="mb-6 flex items-start justify-between gap-4">
-      <div>
-        <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#20686f]">Accelerometer test</p>
-        <h2 className="mt-1 text-2xl font-bold tracking-tight text-[#161d1f]">{label}</h2>
+    <header className="sticky top-0 z-30 border-b border-[#dde4e6]/70 bg-[#f4fafd]/95 px-5 pt-[max(8px,env(safe-area-inset-top))] backdrop-blur-md">
+      <div className="mx-auto flex h-16 w-full max-w-[600px] items-center justify-between">
+        {closeHref ? (
+          <Link aria-label="Close test" className={controlClass} href={closeHref}>
+            <X className="size-6" aria-hidden="true" />
+          </Link>
+        ) : (
+          <button aria-label="Go back" className={controlClass} onClick={onBack} type="button">
+            <ArrowLeft className="size-6" aria-hidden="true" />
+          </button>
+        )}
+        <p className="text-xl font-bold tracking-[-0.02em] text-[#004349]">Step {step} of 3</p>
+        <button aria-label="Test help" className={controlClass} onClick={onHelp} type="button">
+          <CircleHelp className="size-6" aria-hidden="true" />
+        </button>
       </div>
-      <Smartphone className="size-7 text-slate-500" aria-hidden="true" />
-    </div>
+    </header>
   );
 }
 
@@ -286,221 +274,166 @@ type SetupStepProps = {
   doseSlot: number;
   notes: string;
   onContextChange: (value: TremorTestContext) => void;
-  onMedicationChange: (id: string, name: string) => void;
+  onMedicationChange: (id: string) => void;
   onDoseTimeChange: (value: string) => void;
   onDoseSlotChange: (slot: number, time: string) => void;
   onNotesChange: (value: string) => void;
+  onHelp: () => void;
   onNext: () => void;
 };
 
-function SetupStep({
-  context,
-  medicationId,
-  medications,
-  dailyDoseStatuses,
-  doseTime,
-  doseSlot,
-  notes,
-  onContextChange,
-  onMedicationChange,
-  onDoseTimeChange,
-  onDoseSlotChange,
-  onNotesChange,
-  onNext,
-}: SetupStepProps) {
-  const selectedMedication = medications.find((item) => item.id === medicationId);
+function SetupStep(props: SetupStepProps) {
+  const selectedMedication = props.medications.find((item) => item.id === props.medicationId);
   const doseTimes = selectedMedication?.scheduleTimes.length ? selectedMedication.scheduleTimes : [""];
-  const selectedDailyStatus = dailyDoseStatuses.find((item) => item.doseSlot === doseSlot);
-  return (
-    <div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {TEST_CONTEXTS.map((item) => (
-          <button
-            className={`rounded-lg border p-4 text-left ${
-              context === item.value
-                ? "border-[#004349] bg-[#eef5f7] ring-2 ring-[#bbeacf]"
-                : "border-[#bfc8c9] bg-white hover:border-[#004349]"
-            }`}
-            key={item.value}
-            onClick={() => onContextChange(item.value)}
-            type="button"
-          >
-            <Pill className="size-5 text-teal-700" aria-hidden="true" />
-            <p className="mt-3 text-sm font-semibold text-slate-950">{item.label}</p>
-            <p className="mt-1 text-sm leading-6 text-slate-600">
-              {item.description}
-            </p>
-          </button>
-        ))}
-      </div>
+  const selectedStatus = props.dailyDoseStatuses.find((item) => item.doseSlot === props.doseSlot);
 
-      <div className="mt-5 rounded-2xl border border-[#8fd1d9] bg-[#eef5f7] p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-bold text-[#004349]">Choose the dose you are tracking</p>
-            <p className="mt-1 text-sm leading-6 text-[#3f484a]">Use the same dose number for both tests. Your after-medication test will pair with this before-medication test.</p>
+  return (
+    <div className="flex min-h-[100dvh] flex-col">
+      <TestHeader closeHref={routes.patient.root} onHelp={props.onHelp} step={1} />
+      <div className="mx-auto w-full max-w-[600px] flex-1 px-5 pb-36 pt-8">
+        <h1 className="text-[32px] font-bold leading-10 tracking-[-0.02em]">New tremor test</h1>
+        <p className="mt-2 text-base leading-6 text-[#3f484a]">Tell us when this measurement is happening.</p>
+
+        <div className="mt-8 grid grid-cols-2 rounded-xl bg-[#e8eff1] p-1.5" aria-label="Medication timing">
+          <ContextButton active={props.context === "before_medication"} label="Before medication" onClick={() => props.onContextChange("before_medication")} />
+          <ContextButton active={props.context === "after_medication"} label="After medication" onClick={() => props.onContextChange("after_medication")} />
+        </div>
+
+        {props.context === "after_medication" ? (
+          <div className={`mt-5 flex gap-3 rounded-xl border p-4 ${selectedStatus?.before ? "border-[#a2d1b6] bg-[#bbeacf]/55 text-[#244f3a]" : "border-[#f0bd8b] bg-[#ffdcbd]/45 text-[#623f18]"}`} role="status">
+            {selectedStatus?.before ? <CheckCircle2 className="mt-0.5 size-5 shrink-0" /> : <Info className="mt-0.5 size-5 shrink-0" />}
+            <p className="text-sm font-semibold leading-6">
+              {selectedStatus?.before
+                ? `Before test found for Dose ${props.doseSlot + 1} today. Your new test will be linked automatically.`
+                : `No before test found for Dose ${props.doseSlot + 1} today. This result can still be saved, but no comparison will be created.`}
+            </p>
           </div>
-          <span className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-bold text-[#244f3a]">Dose {doseSlot + 1} / {doseTimes.length}</span>
-        </div>
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {doseTimes.map((time, index) => (
-            <button className={`min-h-14 rounded-xl border px-3 py-2 text-left ${doseSlot === index ? "border-[#004349] bg-white ring-2 ring-[#bbeacf]" : "border-[#bfc8c9] bg-white/60"}`} key={`${index}-${time}`} onClick={() => onDoseSlotChange(index, time)} type="button">
-              <span className="block text-xs font-bold uppercase tracking-wider text-[#6f797a]">Dose {index + 1}</span>
-              <span className="mt-1 block text-sm font-bold text-[#161d1f]">{time || "Time not set"}</span>
-              {dailyDoseStatuses.some((item) => item.doseSlot === index) ? (
-                <span className="mt-1 block text-[11px] font-semibold text-[#20686f]">
-                  {dailyDoseStatuses.find((item) => item.doseSlot === index)?.pairId
-                    ? "Paired today"
-                    : dailyDoseStatuses.find((item) => item.doseSlot === index)?.before
-                      ? "Before saved today"
-                      : "After saved today"}
-                </span>
-              ) : null}
-            </button>
-          ))}
-        </div>
-        {context === "after_medication" ? (
-          <div className={`mt-4 rounded-xl px-4 py-3 text-sm font-semibold ${selectedDailyStatus?.before ? "bg-[#bbeacf] text-[#244f3a]" : "bg-amber-50 text-amber-900"}`} role="status">
-            {selectedDailyStatus?.before
-              ? `Before-medication test found for Dose ${doseSlot + 1} today. Your after test will be linked automatically.`
-              : `No valid before-medication test has been saved for Dose ${doseSlot + 1} today yet.`}
+        ) : selectedStatus?.before ? (
+          <div className="mt-5 flex gap-3 rounded-xl border border-[#8fd1d9] bg-[#eef5f7] p-4 text-[#004349]" role="status">
+            <RotateCcw className="mt-0.5 size-5 shrink-0" />
+            <p className="text-sm font-semibold leading-6">A before test is already saved for this dose today. Continuing will create a new retake.</p>
           </div>
         ) : null}
+
+        <section className="mt-7">
+          <label className="text-sm font-semibold text-[#3f484a]" htmlFor="test-medication">Medication</label>
+          <div className="relative mt-2">
+            <Pill className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-[#3c6751]" />
+            <select
+              className="min-h-16 w-full appearance-none rounded-xl border border-[#bfc8c9] bg-white py-3 pl-12 pr-12 text-base font-semibold outline-none focus:border-[#004349] focus:ring-2 focus:ring-[#bbeacf]"
+              id="test-medication"
+              onChange={(event) => props.onMedicationChange(event.target.value)}
+              value={props.medicationId}
+            >
+              {props.medications.length === 0 ? <option value="">Add an active medication first</option> : null}
+              {props.medications.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.dose}</option>)}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-4 top-1/2 size-5 -translate-y-1/2 text-[#3f484a]" />
+          </div>
+        </section>
+
+        <section className="mt-7">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-[#3f484a]">Target dose</p>
+              <p className="mt-1 text-sm text-[#6f797a]">Use the same dose number before and after.</p>
+            </div>
+            <Link className="shrink-0 text-sm font-bold text-[#004349] underline underline-offset-4" href={routes.patient.medications}>Edit schedule</Link>
+          </div>
+          <div className="-mx-5 mt-3 flex gap-3 overflow-x-auto px-5 pb-2">
+            {doseTimes.map((time, index) => {
+              const status = props.dailyDoseStatuses.find((item) => item.doseSlot === index);
+              const selected = props.doseSlot === index;
+              return (
+                <button
+                  className={`min-h-24 min-w-32 rounded-xl border p-4 text-left transition ${selected ? "border-[#004349] bg-[#bbeacf]/45 ring-2 ring-[#004349]/10" : "border-[#bfc8c9] bg-white"}`}
+                  key={`${index}-${time}`}
+                  onClick={() => props.onDoseSlotChange(index, time)}
+                  type="button"
+                >
+                  <span className="block text-lg font-bold text-[#161d1f]">{time || "No time"}</span>
+                  <span className="mt-1 block text-sm font-semibold text-[#3f484a]">Dose {index + 1}</span>
+                  {status ? <span className="mt-2 block text-xs font-semibold text-[#3c6751]">{status.pairId ? "Paired today" : status.before ? "Before saved" : "After saved"}</span> : null}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <details className="mt-5 rounded-xl border border-[#dde4e6] bg-white p-4">
+          <summary className="cursor-pointer text-sm font-bold text-[#004349]">Optional dose details</summary>
+          <div className="mt-4 space-y-4">
+            <div>
+              <label className="text-sm font-semibold text-[#3f484a]" htmlFor="dose-time">{props.context === "after_medication" ? "Time medication was taken" : "Scheduled dose time"}</label>
+              <input className="mt-2 min-h-12 w-full rounded-xl border border-[#bfc8c9] bg-white px-4 text-base outline-none focus:border-[#004349] focus:ring-2 focus:ring-[#bbeacf]" id="dose-time" onChange={(event) => props.onDoseTimeChange(event.target.value)} type="time" value={props.doseTime} />
+            </div>
+            <div>
+              <label className="text-sm font-semibold text-[#3f484a]" htmlFor="test-notes">Notes</label>
+              <textarea className="mt-2 min-h-24 w-full rounded-xl border border-[#bfc8c9] bg-white px-4 py-3 text-base outline-none focus:border-[#004349] focus:ring-2 focus:ring-[#bbeacf]" id="test-notes" onChange={(event) => props.onNotesChange(event.target.value)} placeholder="Sleep, stress, caffeine, or anything unusual" value={props.notes} />
+            </div>
+          </div>
+        </details>
       </div>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className="text-sm font-medium text-slate-700" htmlFor="medication">
-            Medication
-          </label>
-          <select
-            className="mt-2 min-h-12 w-full rounded-xl border border-[#bfc8c9] bg-white px-4 text-base outline-none focus:border-[#004349] focus:ring-2 focus:ring-[#bbeacf]"
-            id="medication"
-            onChange={(event) => {
-              const selected = medications.find((item) => item.id === event.target.value);
-              onMedicationChange(event.target.value, selected ? `${selected.name} ${selected.dose}` : "");
-            }}
-            value={medicationId}
-          >
-            {medications.length === 0 ? <option value="">Add an active medication first</option> : medications.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.dose}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="text-sm font-medium text-slate-700" htmlFor="dose-time">
-            {context === "after_medication" ? "When did you take this dose?" : "Scheduled dose time"}
-          </label>
-          <input
-            className="mt-2 min-h-12 w-full rounded-xl border border-[#bfc8c9] bg-white px-4 text-base outline-none focus:border-[#004349] focus:ring-2 focus:ring-[#bbeacf]"
-            id="dose-time"
-            onChange={(event) => onDoseTimeChange(event.target.value)}
-            type="time"
-            value={doseTime}
-          />
-        </div>
-      </div>
-
-      <div className="mt-4">
-        <label className="text-sm font-medium text-slate-700" htmlFor="test-notes">
-          Notes
-        </label>
-        <textarea
-          className="mt-2 min-h-28 w-full rounded-xl border border-[#bfc8c9] bg-white px-4 py-3 text-base outline-none focus:border-[#004349] focus:ring-2 focus:ring-[#bbeacf]"
-          id="test-notes"
-          onChange={(event) => onNotesChange(event.target.value)}
-          placeholder="Optional: sleep, stress, caffeine, missed dose, unusual symptoms."
-          value={notes}
-        />
-      </div>
-
-      <div className="mt-6 flex justify-end">
-        <button
-          className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-[#004349] px-6 text-sm font-bold text-white hover:bg-[#0d5c63]"
-          disabled={!medicationId}
-          onClick={onNext}
-          type="button"
-        >
-          Continue
-          <ArrowRight className="size-4" aria-hidden="true" />
-        </button>
-      </div>
+      <StickyActions>
+        {props.medications.length === 0 ? (
+          <Link className="flex min-h-14 w-full items-center justify-center rounded-xl bg-[#004349] px-6 text-base font-bold text-white" href={routes.patient.medications}>Add a medication</Link>
+        ) : (
+          <button className="flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-[#004349] px-6 text-base font-bold text-white transition active:scale-[0.99] disabled:bg-[#9aa7a8]" disabled={!props.medicationId} onClick={props.onNext} type="button">Continue <ArrowRight className="size-5" /></button>
+        )}
+      </StickyActions>
     </div>
   );
 }
 
-function InstructionsStep({
-  onBack,
-  onNext,
-}: {
-  onBack: () => void;
-  onNext: () => void;
-}) {
+function ContextButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return <button className={`min-h-12 rounded-lg px-3 text-sm font-bold transition ${active ? "bg-white text-[#004349] shadow-sm" : "text-[#3f484a]"}`} onClick={onClick} type="button">{label}</button>;
+}
+
+function InstructionsStep({ context, doseSlot, medicationLabel, onBack, onHelp, onNext }: { context: TremorTestContext; doseSlot: number; medicationLabel: string; onBack: () => void; onHelp: () => void; onNext: () => void }) {
+  const steps = [
+    { icon: Armchair, title: "Sit comfortably", text: "Keep both feet on the floor in a quiet place." },
+    { icon: Hand, title: "Extend your arm", text: "Turn your palm upward and keep your shoulders relaxed." },
+    { icon: Smartphone, title: "Place the phone flat", text: "Lay the phone flat on your palm with the screen facing up." },
+  ];
   return (
-    <div>
-      <div className="rounded-2xl border border-[#dce7e9] bg-[#eef5f7] p-5 sm:p-6">
-        <div className="flex items-center gap-3">
-          <div className="flex size-12 items-center justify-center rounded-full bg-[#004349] text-white">
-            <Hand className="size-5" aria-hidden="true" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-slate-950">
-              Standardized phone position
-            </p>
-            <p className="mt-1 text-sm text-slate-600">
-              The same position should be used for every test.
-            </p>
+    <div className="flex min-h-[100dvh] flex-col">
+      <TestHeader onBack={onBack} onHelp={onHelp} step={2} />
+      <div className="mx-auto w-full max-w-[600px] flex-1 px-5 pb-44 pt-6">
+        <div className="inline-flex rounded-full bg-[#bbeacf]/65 px-4 py-2 text-sm font-bold text-[#244f3a]">{context === "before_medication" ? "Before medication" : "After medication"} · Dose {doseSlot + 1} · {medicationLabel}</div>
+        <h1 className="mt-6 text-[32px] font-bold leading-10 tracking-[-0.02em]">Get into position</h1>
+        <p className="mt-2 text-base leading-6 text-[#3f484a]">Use this same position every time for a fair personal comparison.</p>
+
+        <div className="relative mt-7 flex min-h-52 items-center justify-center overflow-hidden rounded-2xl bg-[#e8eff1]">
+          <div className="absolute size-44 rounded-full bg-[#bbeacf]/60" />
+          <div className="relative flex items-center gap-4 text-[#004349]">
+            <Accessibility className="size-16" strokeWidth={1.6} />
+            <ArrowRight className="size-8" />
+            <Hand className="size-14" strokeWidth={1.6} />
+            <Smartphone className="-ml-10 -mt-8 size-10 rotate-90" strokeWidth={1.8} />
           </div>
         </div>
 
-        <ol className="mt-5 space-y-3">
-          {protocolSteps.map((item, index) => (
-            <li className="flex gap-3 text-sm leading-6 text-slate-700" key={item}>
-              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-teal-700">
-                {index + 1}
-              </span>
-              {item}
+        <ol className="mt-6 space-y-3">
+          {steps.map((item, index) => (
+            <li className="flex gap-4 rounded-xl border border-[#dde4e6] bg-white p-5 shadow-[0_4px_12px_-4px_rgba(0,0,0,0.04)]" key={item.title}>
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-[#eef5f7] text-[#3c6751]"><item.icon className="size-6" /></div>
+              <div><p className="text-xs font-bold uppercase tracking-[0.12em] text-[#6f797a]">Step {index + 1}</p><h2 className="mt-1 text-lg font-bold">{item.title}</h2><p className="mt-1 text-base leading-6 text-[#3f484a]">{item.text}</p></div>
             </li>
           ))}
         </ol>
       </div>
-
-      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-between">
-        <button
-          className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-[#6f797a] bg-white px-5 text-sm font-bold text-[#004349] hover:bg-[#eef5f7]"
-          onClick={onBack}
-          type="button"
-        >
-          <ArrowLeft className="size-4" aria-hidden="true" />
-          Back
-        </button>
-        <button
-          className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-[#004349] px-5 text-sm font-bold text-white hover:bg-[#0d5c63]"
-          onClick={onNext}
-          type="button"
-        >
-          I am in position
-          <ArrowRight className="size-4" aria-hidden="true" />
-        </button>
-      </div>
+      <StickyActions>
+        <button className="flex min-h-14 w-full items-center justify-center rounded-xl bg-[#004349] px-6 text-base font-bold text-white" onClick={onNext} type="button">I’m ready</button>
+        <button className="flex min-h-12 w-full items-center justify-center rounded-xl border-2 border-[#004349] px-6 text-base font-bold text-[#004349]" onClick={onBack} type="button">Back</button>
+      </StickyActions>
     </div>
   );
 }
 
-function ReadyStep({
-  context,
-  onBack,
-  onRecordingComplete,
-  onReset,
-}: {
-  context: TremorTestContext;
-  onBack: () => void;
-  onRecordingComplete: (recording: SensorRecording) => Promise<void>;
-  onReset: () => void;
-}) {
-  const [status, setStatus] = useState<
-    "idle" | "requesting_permission" | "recording" | "processing" | "complete" | "error"
-  >("idle");
+function ReadyStep({ context, onBack, onHelp, onRecordingComplete }: { context: TremorTestContext; onBack: () => void; onHelp: () => void; onRecordingComplete: (recording: SensorRecording) => Promise<void> }) {
+  const [status, setStatus] = useState<"idle" | "requesting_permission" | "recording" | "processing" | "error">("idle");
   const [samples, setSamples] = useState<AccelerationSample[]>([]);
-  const [recording, setRecording] = useState<SensorRecording | null>(null);
   const [error, setError] = useState("");
   const [elapsedMs, setElapsedMs] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -513,21 +446,17 @@ function ReadyStep({
 
   async function startRecording() {
     setError("");
-    setRecording(null);
     setSamples([]);
-
     if (!isDeviceMotionSupported()) {
       setStatus("error");
-      setError("This browser does not support DeviceMotion accelerometer events.");
+      setError("This browser cannot access the phone motion sensor. Open the site in Safari or Chrome on your smartphone.");
       return;
     }
-
     setStatus("requesting_permission");
     const permission = await requestMotionPermission();
-
     if (permission !== "granted") {
       setStatus("error");
-      setError("Motion permission was not granted.");
+      setError("Motion access was not allowed. Enable Motion & Orientation Access in your browser settings, then try again.");
       return;
     }
 
@@ -537,12 +466,8 @@ function ReadyStep({
     abortControllerRef.current = controller;
     setElapsedMs(0);
     setStatus("recording");
-    clockIdRef.current = window.setInterval(() => {
-      setElapsedMs(Math.min(performance.now() - clockStartedAt, RECORDING_DURATION_MS));
-    }, 50);
-    const recordedSamples = await recordAccelerometerSamples((sample) => {
-      setSamples((current) => [...current, sample]);
-    }, RECORDING_DURATION_MS, controller.signal);
+    clockIdRef.current = window.setInterval(() => setElapsedMs(Math.min(performance.now() - clockStartedAt, RECORDING_DURATION_MS)), 50);
+    const recordedSamples = await recordAccelerometerSamples((sample) => setSamples((current) => [...current, sample]), RECORDING_DURATION_MS, controller.signal);
     if (clockIdRef.current != null) window.clearInterval(clockIdRef.current);
     clockIdRef.current = null;
     abortControllerRef.current = null;
@@ -551,445 +476,142 @@ function ReadyStep({
       setSamples([]);
       setElapsedMs(0);
       setStatus("error");
-      setError("Recording stopped. When you are ready, keep the phone steady and start again.");
+      setError("Recording stopped. Get back into position when you are ready.");
       return;
     }
 
     setElapsedMs(RECORDING_DURATION_MS);
-    const completedAt = new Date();
-    const quality = evaluateRecordingQuality(recordedSamples);
-    const analysis = analyzeTremorSignal(recordedSamples);
-    const completedRecording = {
+    const recording: SensorRecording = {
       context,
       startedAt,
-      completedAt,
+      completedAt: new Date(),
       samples: recordedSamples,
-      quality,
-      analysis,
+      quality: evaluateRecordingQuality(recordedSamples),
+      analysis: analyzeTremorSignal(recordedSamples),
     };
-
-    setRecording(completedRecording);
     setStatus("processing");
-    await onRecordingComplete(completedRecording);
-    setStatus("complete");
-  }
-
-  const elapsedSeconds = elapsedMs / 1000;
-  const progressPercent = Math.round((elapsedMs / RECORDING_DURATION_MS) * 100);
-
-  function stopRecording() {
-    abortControllerRef.current?.abort();
+    await onRecordingComplete(recording);
   }
 
   return (
-    <div>
-      {status === "recording" || status === "processing" ? (
-        <RecordingOverlay
-          elapsedMs={elapsedMs}
-          onStop={stopRecording}
-          processing={status === "processing"}
-          sampleCount={samples.length}
-        />
-      ) : null}
-      <div className="rounded-2xl border border-[#bbeacf] bg-[#eef5f7] p-6 text-center">
-        <CheckCircle2 className="size-7 text-teal-700" aria-hidden="true" />
-        <h2 className="mt-4 text-xl font-bold tracking-tight text-[#004349]">
-          Position confirmed
-        </h2>
-        <p className="mt-2 text-sm leading-6 text-teal-900">
-          Keep the smartphone flat on your palm and press start. The browser will
-          request motion permission before recording.
-        </p>
-      </div>
-
-      <div className="mt-5 rounded-2xl border border-[#dce7e9] bg-white p-5">
-        <div className="flex items-center gap-3">
-          <Clock className="size-5 text-teal-700" aria-hidden="true" />
-          <p className="text-sm font-medium text-slate-700">
-            Recording duration: 10 seconds
-          </p>
+    <div className="flex min-h-[100dvh] flex-col">
+      {status === "recording" || status === "processing" ? <RecordingOverlay elapsedMs={elapsedMs} onStop={() => abortControllerRef.current?.abort()} processing={status === "processing"} sampleCount={samples.length} /> : null}
+      <TestHeader onBack={onBack} onHelp={onHelp} step={3} />
+      <div className="mx-auto flex w-full max-w-[600px] flex-1 flex-col items-center px-5 pb-40 pt-12 text-center">
+        <div className="relative flex size-32 items-center justify-center rounded-full bg-[#bbeacf]/65 text-[#3c6751]">
+          <Waves className="absolute size-24 opacity-25" />
+          <Smartphone className="size-14" strokeWidth={1.7} />
         </div>
-      </div>
-
-      <div className="mt-5 rounded-2xl border border-[#dce7e9] bg-white p-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-slate-950">
-              Accelerometer recorder
-            </p>
-            <p className="mt-1 text-sm text-slate-600">
-              Captures timestamped x, y, z motion samples from DeviceMotion events.
-            </p>
-          </div>
-          <button
-            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-[#004349] px-5 text-sm font-bold text-white hover:bg-[#0d5c63] disabled:cursor-not-allowed disabled:bg-[#9aa7a8]"
-            disabled={status === "requesting_permission" || status === "recording" || status === "processing"}
-            onClick={startRecording}
-            type="button"
-          >
-            <Play className="size-4" aria-hidden="true" />
-            {status === "recording" ? "Recording..." : "Start recording"}
-          </button>
+        <h1 className="mt-8 text-[32px] font-bold leading-10 tracking-[-0.02em]">Ready to record</h1>
+        <p className="mt-4 max-w-sm text-lg leading-7 text-[#3f484a]">Keep the phone flat on your palm. Stay as still as you comfortably can for 10 seconds.</p>
+        <div className="mt-8 flex w-full max-w-sm gap-3 rounded-xl border border-[#dde4e6] bg-white p-5 text-left">
+          <ShieldCheck className="size-6 shrink-0 text-[#3c6751]" />
+          <div><p className="font-bold">Motion data only</p><p className="mt-1 text-sm leading-6 text-[#3f484a]">No camera, microphone, photo, or video is used.</p></div>
         </div>
-
-        {status === "requesting_permission" ? (
-          <p className="mt-4 text-sm text-slate-600">Requesting motion permission...</p>
-        ) : null}
-
-        {status === "recording" ? (
-          <div className="mt-5">
-            <div className="h-3 overflow-hidden rounded-full bg-[#e2e9ec]">
-              <div
-                className="h-full rounded-full bg-[#004349] transition-all"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-            <p className="mt-2 text-sm text-slate-600">
-              {elapsedSeconds.toFixed(1)}s captured, {samples.length} samples
-            </p>
-          </div>
-        ) : null}
-
-        {status === "error" ? (
-          <div className="mt-5 rounded-lg border border-red-200 bg-red-50 p-4">
-            <div className="flex gap-3">
-              <AlertTriangle className="size-5 shrink-0 text-red-600" aria-hidden="true" />
-              <p className="text-sm leading-6 text-red-900">{error}</p>
-            </div>
-          </div>
-        ) : null}
-
-        {recording ? <RecordingResult recording={recording} /> : null}
+        {status === "requesting_permission" ? <p className="mt-6 text-sm font-semibold text-[#004349]" role="status">Waiting for motion sensor permission…</p> : null}
+        {status === "error" ? <div className="mt-6 w-full rounded-xl border border-[#f0bd8b] bg-[#ffdcbd]/45 p-4 text-left text-sm font-semibold leading-6 text-[#623f18]" role="alert">{error}</div> : null}
       </div>
-
-      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-between">
-        <button
-          className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-[#6f797a] bg-white px-5 text-sm font-bold text-[#004349] hover:bg-[#eef5f7]"
-          onClick={onBack}
-          type="button"
-        >
-          <ArrowLeft className="size-4" aria-hidden="true" />
-          Back
-        </button>
-        <button
-          className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-[#6f797a] bg-white px-5 text-sm font-bold text-[#004349] hover:bg-[#eef5f7]"
-          onClick={onReset}
-          type="button"
-        >
-          <RotateCcw className="size-4" aria-hidden="true" />
-          Retake this dose
-        </button>
-      </div>
+      <StickyActions>
+        <button className="flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-[#004349] px-6 text-base font-bold text-white disabled:bg-[#9aa7a8]" disabled={status === "requesting_permission"} onClick={startRecording} type="button"><Play className="size-5 fill-current" /> {status === "requesting_permission" ? "Requesting access…" : "Start 10-second recording"}</button>
+        <button className="flex min-h-12 w-full items-center justify-center rounded-xl border-2 border-[#004349] px-6 text-base font-bold text-[#004349]" onClick={onBack} type="button">Review position</button>
+      </StickyActions>
     </div>
   );
 }
 
-function RecordingOverlay({
-  elapsedMs,
-  onStop,
-  processing,
-  sampleCount,
-}: {
-  elapsedMs: number;
-  onStop: () => void;
-  processing: boolean;
-  sampleCount: number;
-}) {
+function RecordingOverlay({ elapsedMs, onStop, processing, sampleCount }: { elapsedMs: number; onStop: () => void; processing: boolean; sampleCount: number }) {
   const radius = 120;
   const circumference = 2 * Math.PI * radius;
   const progress = Math.min(elapsedMs / RECORDING_DURATION_MS, 1);
   const remainingSeconds = Math.max(0, Math.ceil((RECORDING_DURATION_MS - elapsedMs) / 1000));
-
   return (
     <div className="fixed inset-0 z-[100] flex min-h-[100dvh] flex-col overflow-hidden bg-[#f4fafd] px-5 pb-[max(32px,env(safe-area-inset-bottom))] pt-[max(40px,env(safe-area-inset-top))] text-[#161d1f]">
       <div className="steady-recorder-glow pointer-events-none absolute left-1/2 top-1/2 size-[125vw] max-h-[680px] max-w-[680px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#bbeacf]/40 blur-[90px]" />
-
-      <header className="relative mx-auto w-full max-w-md text-center">
-        <p className="text-2xl font-semibold leading-8 tracking-[-0.02em] text-[#004349]">Hold your phone steady</p>
-        <p className="mt-2 text-base leading-6 text-[#3f484a]">in your dominant hand.</p>
-      </header>
-
+      <header className="relative mx-auto w-full max-w-md text-center"><p className="text-2xl font-semibold leading-8 tracking-[-0.02em] text-[#004349]">Hold your phone steady</p><p className="mt-2 text-base leading-6 text-[#3f484a]">Keep the same comfortable position.</p></header>
       <div className="relative mx-auto flex flex-1 items-center justify-center py-8">
         <div className="relative flex size-[min(74vw,300px)] items-center justify-center">
-          <svg className="absolute inset-0 size-full drop-shadow-sm" viewBox="0 0 260 260" aria-hidden="true">
-            <circle cx="130" cy="130" fill="none" r={radius} stroke="#e2e9ec" strokeWidth="8" />
-            <circle
-              cx="130"
-              cy="130"
-              fill="none"
-              r={radius}
-              stroke="#004349"
-              strokeDasharray={circumference}
-              strokeDashoffset={circumference * progress}
-              strokeLinecap="round"
-              strokeWidth="10"
-              style={{ transform: "rotate(-90deg)", transformOrigin: "50% 50%", transition: "stroke-dashoffset 80ms linear" }}
-            />
-          </svg>
-
-          <div className="absolute inset-[18%] overflow-hidden rounded-full">
-            <svg className="steady-recorder-wave absolute left-1/2 top-1/2 h-24 w-[150%] -translate-x-1/2 -translate-y-1/2 opacity-70" fill="none" viewBox="0 0 240 100" aria-hidden="true">
-              <path d="M-20 50 Q20 42 40 50 T100 50 T160 50 T220 50 T260 50" stroke="#a2d1b6" strokeLinecap="round" strokeWidth="4" />
-              <path d="M-20 50 Q20 58 40 50 T100 50 T160 50 T220 50 T260 50" opacity=".55" stroke="#8fd1d9" strokeLinecap="round" strokeWidth="2" />
-              <path d="M-20 50 Q20 46 40 50 T100 50 T160 50 T220 50 T260 50" opacity=".35" stroke="#3c6751" strokeLinecap="round" strokeWidth="1.5" />
-            </svg>
-          </div>
-
-          <div className="relative flex flex-col items-center justify-center text-center">
-            <span className="text-[44px] font-bold leading-none tracking-[-0.04em] text-[#004349]">
-              {processing ? "Done" : remainingSeconds}
-            </span>
-            <span className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#3f484a]">
-              {processing ? "Processing" : "Seconds"}
-            </span>
-            <span className="sr-only">{sampleCount} accelerometer samples captured</span>
-          </div>
+          <svg className="absolute inset-0 size-full drop-shadow-sm" viewBox="0 0 260 260" aria-hidden="true"><circle cx="130" cy="130" fill="none" r={radius} stroke="#e2e9ec" strokeWidth="8" /><circle cx="130" cy="130" fill="none" r={radius} stroke="#004349" strokeDasharray={circumference} strokeDashoffset={circumference * (1 - progress)} strokeLinecap="round" strokeWidth="10" style={{ transform: "rotate(-90deg)", transformOrigin: "50% 50%", transition: "stroke-dashoffset 80ms linear" }} /></svg>
+          <div className="absolute inset-[18%] overflow-hidden rounded-full"><svg className="steady-recorder-wave absolute left-1/2 top-1/2 h-24 w-[150%] -translate-x-1/2 -translate-y-1/2 opacity-70" fill="none" viewBox="0 0 240 100" aria-hidden="true"><path d="M-20 50 Q20 42 40 50 T100 50 T160 50 T220 50 T260 50" stroke="#a2d1b6" strokeLinecap="round" strokeWidth="4" /><path d="M-20 50 Q20 58 40 50 T100 50 T160 50 T220 50 T260 50" opacity=".55" stroke="#8fd1d9" strokeLinecap="round" strokeWidth="2" /></svg></div>
+          <div className="relative flex flex-col items-center text-center"><span className="text-[44px] font-bold leading-none tracking-[-0.04em] text-[#004349]">{processing ? "Done" : remainingSeconds}</span><span className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#3f484a]">{processing ? "Processing" : "Seconds"}</span><span className="sr-only">{sampleCount} accelerometer samples captured</span></div>
         </div>
       </div>
-
-      <footer className="relative mx-auto w-full max-w-md">
-        {processing ? (
-          <div className="flex min-h-14 w-full items-center justify-center rounded-full border border-[#bfc8c9] bg-white/70 px-6 text-sm font-semibold text-[#004349]">
-            Analyzing and saving securely…
-          </div>
-        ) : (
-          <button className="flex min-h-14 w-full items-center justify-center gap-3 rounded-full border-2 border-[#ba1a1a] bg-transparent px-6 text-sm font-semibold text-[#ba1a1a] transition active:scale-[0.98] active:bg-[#ffdad6]" onClick={onStop} type="button">
-            <X className="size-5" aria-hidden="true" />
-            Stop Recording
-          </button>
-        )}
-      </footer>
+      <footer className="relative mx-auto w-full max-w-md">{processing ? <div className="flex min-h-14 w-full items-center justify-center rounded-full border border-[#bfc8c9] bg-white/70 px-6 text-sm font-semibold text-[#004349]">Checking quality and saving securely…</div> : <button className="flex min-h-14 w-full items-center justify-center gap-3 rounded-full border-2 border-[#ba1a1a] px-6 text-sm font-semibold text-[#ba1a1a]" onClick={onStop} type="button"><X className="size-5" /> Stop recording</button>}</footer>
     </div>
   );
 }
 
-function RecordingResult({ recording }: { recording: SensorRecording }) {
-  const { analysis, quality } = recording;
+function OutcomeScreen({ children, doseSlot, medicationLabel, onHelp, onRetake, onReviewPosition, outcome }: { children?: React.ReactNode; doseSlot: number; medicationLabel: string; onHelp: () => void; onRetake: () => void; onReviewPosition: () => void; outcome: WorkflowOutcome }) {
+  if (outcome.kind === "invalid" || outcome.kind === "save_error") {
+    const saveError = outcome.kind === "save_error";
+    return (
+      <main className="relative min-h-[100dvh] overflow-hidden bg-[#f4fafd] px-5 pb-[max(32px,env(safe-area-inset-bottom))] pt-[max(48px,env(safe-area-inset-top))]">
+        <div className="pointer-events-none absolute inset-x-0 top-1/3 h-80 bg-[#bbeacf]/10 [clip-path:ellipse(80%_45%_at_50%_50%)]" />
+        <div className="relative mx-auto flex min-h-[calc(100dvh-80px)] w-full max-w-[600px] flex-col items-center">
+          <div className={`flex size-24 items-center justify-center rounded-full ${saveError ? "bg-[#ffdad6] text-[#93000a]" : "bg-[#eef5f7] text-[#6f797a]"}`}>{saveError ? <Info className="size-11" /> : <Hand className="size-11" />}</div>
+          <h1 className="mt-8 text-center text-[32px] font-bold leading-10 tracking-[-0.02em]">{saveError ? "We couldn’t save that" : "Let’s try that again"}</h1>
+          <p className="mt-4 max-w-md text-center text-lg leading-7 text-[#3f484a]">{saveError ? outcome.message : "We couldn’t get a clear reading because the phone moved too much or the sensor data was incomplete."}</p>
+          {!saveError ? <div className="mt-10 grid w-full gap-4 sm:grid-cols-2"><TipCard icon={Table2} title="Rest your arm">Try resting your elbow on a table or chair arm for support.</TipCard><TipCard icon={Armchair} title="Sit comfortably">Find a quiet spot where you can sit without feeling rushed.</TipCard></div> : <div className="mt-8 w-full rounded-xl border border-[#dde4e6] bg-white p-5 text-sm leading-6 text-[#3f484a]">Your unclear or unsaved test was not added to history and was not used in a comparison.</div>}
+          <div className="mt-auto flex w-full flex-col gap-3 pt-10"><button className="flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-[#004349] px-6 text-base font-bold text-white" onClick={onRetake} type="button">Retake test <RotateCcw className="size-5" /></button><button className="flex min-h-14 w-full items-center justify-center rounded-full border-2 border-[#004349] px-6 text-base font-bold text-[#004349]" onClick={onReviewPosition} type="button">Review position</button><Link className="flex min-h-12 items-center justify-center text-sm font-bold text-[#004349] underline" href={routes.patient.root}>Cancel</Link></div>
+        </div>{children}
+      </main>
+    );
+  }
+
+  if (outcome.kind === "paired" && outcome.comparison) {
+    return <PairedOutcome comparison={outcome.comparison} doseSlot={doseSlot} medicationLabel={medicationLabel} onHelp={onHelp}>{children}</PairedOutcome>;
+  }
+
+  if (outcome.kind === "after_unpaired") {
+    return (
+      <main className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-[#f4fafd] px-5 pb-[max(32px,env(safe-area-inset-bottom))] pt-[max(48px,env(safe-area-inset-top))] text-center">
+        <div className="pointer-events-none absolute inset-x-0 top-1/3 h-72 bg-[#bbeacf]/15 [clip-path:ellipse(75%_40%_at_50%_50%)]" />
+        <div className="relative mx-auto flex w-full max-w-[600px] flex-1 flex-col items-center justify-center"><div className="flex size-24 items-center justify-center rounded-full bg-[#bbeacf] text-[#406b55]"><Info className="size-12" /></div><h1 className="mt-8 text-[32px] font-bold leading-10 tracking-[-0.02em]">After test saved</h1><p className="mt-5 max-w-md text-lg leading-8 text-[#3f484a]">We could not find a before-medication test for {medicationLabel}, Dose {doseSlot + 1} today, so no dose comparison was created.</p><p className="mt-4 text-base text-[#3f484a]">The result is safely stored in your history.</p></div>
+        <div className="relative mx-auto flex w-full max-w-[600px] flex-col gap-3 pt-8"><Link className="flex min-h-14 items-center justify-center rounded-xl bg-[#004349] px-6 text-base font-bold text-white" href={routes.patient.result(outcome.sessionId)}>View saved result</Link><Link className="flex min-h-14 items-center justify-center rounded-xl border-2 border-[#004349] px-6 text-base font-bold text-[#004349]" href={routes.patient.root}>Done</Link></div>{children}
+      </main>
+    );
+  }
 
   return (
-    <div
-      className={`mt-5 rounded-lg border p-4 ${
-        quality.status === "valid"
-          ? "border-teal-200 bg-teal-50"
-          : "border-amber-200 bg-amber-50"
-      }`}
-    >
-      <div className="flex items-start gap-3">
-        {quality.status === "valid" ? (
-          <CheckCircle2 className="size-5 shrink-0 text-teal-700" aria-hidden="true" />
-        ) : (
-          <AlertTriangle className="size-5 shrink-0 text-amber-700" aria-hidden="true" />
-        )}
-        <div>
-          <p className="text-sm font-semibold text-slate-950">
-            {quality.status === "valid"
-              ? "Recording quality looks usable"
-              : "Recording should be repeated"}
-          </p>
-          <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
-            <Metric label="Samples" value={String(quality.sampleCount)} />
-            <Metric
-              label="Duration"
-              value={`${(quality.durationMs / 1000).toFixed(1)}s`}
-            />
-            <Metric
-              label="Sample rate"
-              value={`${quality.sampleRateHz.toFixed(1)} Hz`}
-            />
-          </dl>
-          {quality.notes.length > 0 ? (
-            <ul className="mt-3 space-y-1 text-sm leading-6 text-slate-700">
-              {quality.notes.map((note) => (
-                <li key={note}>{note}</li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
+    <main className="min-h-[100dvh] bg-[#f4fafd]">
+      <TestHeader closeHref={routes.patient.root} onHelp={onHelp} step={1} />
+      <div className="mx-auto flex w-full max-w-[600px] flex-col items-center px-5 pb-12 pt-10 text-center">
+        <div className="flex size-24 items-center justify-center rounded-full bg-[#bbeacf] text-[#406b55]"><CheckCircle2 className="size-12" /></div>
+        <h1 className="mt-8 text-[32px] font-bold leading-10 tracking-[-0.02em] text-[#004349]">Before test saved</h1>
+        <p className="mt-3 text-lg text-[#3f484a]">{medicationLabel} · Dose {doseSlot + 1} · Today at {formatTime(outcome.recording.startedAt)}</p>
+        <div className="mt-9 w-full rounded-xl border border-[#dde4e6] bg-white p-6 text-left shadow-sm"><div className="mx-auto max-w-xs space-y-5"><StatusRow complete label="Before medication" value="Complete" /><StatusRow label="After medication" value="Waiting" /></div></div>
+        <div className="mt-6 w-full rounded-xl border border-[#dde4e6] bg-[#eef5f7] p-6 text-left"><div className="flex items-center gap-2 font-bold text-[#004349]"><Info className="size-5" /> Next step</div><p className="mt-3 text-base leading-7">After taking Dose {doseSlot + 1}, return to SteadyPath, select After medication, and choose Dose {doseSlot + 1}. The tests will link automatically.</p></div>
+        <div className="mt-8 flex w-full flex-col gap-3"><Link className="flex min-h-14 items-center justify-center rounded-xl bg-[#004349] px-6 text-base font-bold text-white" href={routes.patient.root}>Done for now</Link><button className="flex min-h-14 items-center justify-center rounded-xl border-2 border-[#004349] px-6 text-base font-bold text-[#004349]" onClick={onRetake} type="button">Retake test</button><Link className="flex min-h-12 items-center justify-center text-sm font-bold text-[#161d1f] underline" href={routes.patient.result(outcome.sessionId)}>View technical result</Link></div>
+        {outcome.mlStatus !== "success" ? <p className="mt-5 text-xs leading-5 text-[#6f797a]">The deterministic analysis was saved safely. Experimental ML analysis was unavailable.</p> : null}
+      </div>{children}
+    </main>
+  );
+}
+
+function PairedOutcome({ children, comparison, doseSlot, medicationLabel, onHelp }: { children?: React.ReactNode; comparison: SavedPairComparison; doseSlot: number; medicationLabel: string; onHelp: () => void }) {
+  const improvement = comparison.improvementPercent;
+  const lower = improvement != null && improvement > 5;
+  const higher = improvement != null && improvement < -5;
+  const difference = improvement == null ? "—" : `${improvement > 0 ? "−" : improvement < 0 ? "+" : ""}${Math.abs(improvement).toFixed(0)}%`;
+  return (
+    <main className="min-h-[100dvh] bg-[#f4fafd] pb-28">
+      <header className="sticky top-0 z-20 border-b border-[#dde4e6]/70 bg-[#f4fafd]/90 px-5 pt-[max(8px,env(safe-area-inset-top))] backdrop-blur"><div className="mx-auto flex h-16 max-w-[600px] items-center justify-between"><Link aria-label="Back to dashboard" className="flex size-12 items-center justify-center rounded-full text-[#004349]" href={routes.patient.root}><ArrowLeft className="size-6" /></Link><button aria-label="Comparison help" className="flex size-12 items-center justify-center rounded-full text-[#3f484a]" onClick={onHelp} type="button"><CircleHelp className="size-6" /></button></div></header>
+      <div className="mx-auto w-full max-w-[600px] px-5 pt-8">
+        <section className="flex flex-col items-center text-center"><div className="flex size-24 items-center justify-center rounded-full bg-[#bbeacf] text-[#406b55]"><Link2 className="size-12" /></div><p className="mt-6 text-sm font-bold uppercase tracking-[0.1em] text-[#3c6751]">Dose {doseSlot + 1} comparison</p><h1 className="mt-3 text-[32px] font-bold leading-10 tracking-[-0.02em]">Your tests were linked</h1><p className="mt-3 text-lg leading-7 text-[#3f484a]">{lower ? "Lower movement was measured after this dose." : higher ? "Higher movement was measured after this dose." : "Movement was similar before and after this dose."}</p></section>
+        <section className="relative mt-8 rounded-xl bg-white p-6 shadow-sm"><div className="absolute bottom-10 left-[39px] top-10 w-0.5 bg-[#dde4e6]" /><div className="relative space-y-6"><TimelineRow icon={Accessibility} label="Before" time={formatTime(new Date(comparison.beforeRecordedAt))} /><TimelineRow icon={Pill} label="Medication taken" time={comparison.medicationTakenAt ? formatTime(new Date(comparison.medicationTakenAt)) : "Time not entered"} emphasized /><TimelineRow icon={Accessibility} label="After" time={formatTime(new Date(comparison.afterRecordedAt))} /></div></section>
+        <section className="mt-4 grid grid-cols-2 gap-4"><MovementCard label="Before movement" value={comparison.beforePower} /><MovementCard label="After movement" value={comparison.afterPower} /><div className="col-span-2 flex items-center justify-between rounded-xl border border-[#a2d1b6] bg-[#bbeacf]/35 p-5"><div><p className="font-bold">Difference</p><p className="mt-1 text-sm text-[#3f484a]">{lower ? "Lower movement" : higher ? "Higher movement" : "Similar movement"}</p></div><div className={`flex items-center gap-2 text-2xl font-bold ${higher ? "text-[#93000a]" : "text-[#3c6751]"}`}><TrendingDown className={`size-6 ${higher ? "rotate-180" : ""}`} />{difference}</div></div></section>
+        <p className="mt-5 rounded-xl border border-[#dde4e6] bg-[#eef5f7] p-4 text-center text-sm leading-6 text-[#3f484a]"><Info className="mr-1 inline size-4" /> Compared with your own tests, not a diagnosis.</p>
+        <details className="mt-5 rounded-xl bg-white p-5 shadow-sm"><summary className="flex cursor-pointer items-center justify-between font-bold">Technical details <ChevronDown className="size-5" /></summary><div className="mt-4 border-t border-[#dde4e6] pt-4 text-sm leading-6 text-[#3f484a]"><p>Medication: {medicationLabel}</p><p>Signal: smartphone accelerometer x/y/z</p><p>Measure: deterministic tremor power (signal-v2)</p></div></details>
       </div>
-      <TremorAnalysisPanel analysis={analysis} />
-    </div>
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[#dde4e6] bg-[#f4fafd]/95 px-5 pb-[max(24px,env(safe-area-inset-bottom))] pt-4 backdrop-blur"><Link className="mx-auto flex min-h-14 w-full max-w-[600px] items-center justify-center rounded-full bg-[#004349] px-6 text-base font-bold text-white" href={routes.patient.history}>View personal trend</Link></div>{children}
+    </main>
   );
 }
 
-function TremorAnalysisPanel({ analysis }: { analysis: TremorAnalysisResult }) {
-  return (
-    <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
-      <div className="flex items-start gap-3">
-        <Waves className="size-5 shrink-0 text-teal-700" aria-hidden="true" />
-        <div className="w-full">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-slate-950">
-                Signal analysis
-              </p>
-              <p className="mt-1 text-sm text-slate-600">
-                Deterministic accelerometer analysis, not a diagnosis.
-              </p>
-            </div>
-            <span className="rounded-md bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-700">
-              {analysis.algorithmVersion}
-            </span>
-          </div>
-
-          <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-            <Metric
-              label="Severity"
-              value={`${analysis.severityClass} - ${analysis.severityLabel}`}
-            />
-            <Metric
-              label="Dominant frequency"
-              value={
-                analysis.dominantFrequencyHz == null
-                  ? "Not detected"
-                  : `${analysis.dominantFrequencyHz.toFixed(2)} Hz`
-              }
-            />
-            <Metric label="Analysis windows" value={String(analysis.windowCount)} />
-            <Metric label="Tremor-like windows" value={`${analysis.tremorWindowPercent.toFixed(0)}%`} />
-            <Metric label="Tremor power" value={analysis.tremorPower.toFixed(2)} />
-            <Metric label="RMS intensity" value={analysis.rmsIntensity.toFixed(2)} />
-            <Metric
-              label="Spectral concentration"
-              value={`${Math.round(analysis.spectralConcentration * 100)}%`}
-            />
-            <Metric label="Sliding windows" value={String(analysis.windowCount)} />
-          </div>
-
-          {analysis.notes.length > 0 ? (
-            <ul className="mt-3 space-y-1 text-sm leading-6 text-slate-600">
-              {analysis.notes.map((note) => (
-                <li key={note}>{note}</li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-slate-500">{label}</dt>
-      <dd className="mt-1 font-semibold text-slate-950">{value}</dd>
-    </div>
-  );
-}
-
-function RecordedPairStatus({
-  dailyStatus,
-  doseSlot,
-  recordingsByContext,
-}: {
-  dailyStatus: DailyDosePairingStatus | undefined;
-  doseSlot: number;
-  recordingsByContext: Partial<Record<TremorTestContext, SensorRecording>>;
-}) {
-  const before = recordingsByContext.before_medication;
-  const after = recordingsByContext.after_medication;
-  const beforeValue = before
-    ? `${before.analysis.severityClass} - ${before.analysis.severityLabel}`
-    : dailyStatus?.before
-      ? "Saved today"
-      : "Missing";
-  const afterValue = after
-    ? `${after.analysis.severityClass} - ${after.analysis.severityLabel}`
-    : dailyStatus?.after
-      ? "Saved today"
-      : "Missing";
-
-  return (
-    <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-slate-950">Dose {doseSlot + 1} comparison pair</p>
-          <p className="mt-1 text-xs leading-5 text-slate-500">Today · saved securely across app sessions</p>
-        </div>
-        {dailyStatus?.pairId ? <span className="rounded-full bg-[#bbeacf] px-3 py-1 text-xs font-bold text-[#244f3a]">Paired</span> : null}
-      </div>
-      <div className="mt-3 grid gap-3 text-sm">
-        <PairStatusItem label="Before medication" value={beforeValue} />
-        <PairStatusItem label="After medication" value={afterValue} />
-      </div>
-    </div>
-  );
-}
-
-function PairStatusItem({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-2 last:border-0 last:pb-0">
-      <span className="text-slate-600">{label}</span>
-      <span className="text-right font-semibold text-slate-950">{value}</span>
-    </div>
-  );
-}
-
-function ComparisonPanel({
-  comparison,
-}: {
-  comparison: MedicationResponseComparison;
-}) {
-  const improvementLabel =
-    comparison.improvementPercent == null
-      ? "Not available"
-      : `${comparison.improvementPercent.toFixed(1)}%`;
-  const statusLabel = {
-    improved: "Improved",
-    unchanged: "Similar",
-    worse: "Higher after medication",
-    not_comparable: "Limited comparison",
-  }[comparison.status];
-
-  return (
-    <div className="mt-5 rounded-lg border border-teal-200 bg-teal-50 p-4">
-      <div className="flex items-start gap-3">
-        <BarChart3 className="size-5 shrink-0 text-teal-700" aria-hidden="true" />
-        <div className="w-full">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-teal-950">
-                Before/after comparison
-              </p>
-              <p className="mt-1 text-sm leading-6 text-teal-900">
-                {comparison.message}
-              </p>
-            </div>
-            <span className="rounded-md bg-white px-3 py-1 text-sm font-semibold text-teal-800">
-              {statusLabel}
-            </span>
-          </div>
-
-          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-            <Metric label="Before power" value={comparison.beforePower.toFixed(2)} />
-            <Metric label="After power" value={comparison.afterPower.toFixed(2)} />
-            <Metric
-              label="Before severity"
-              value={String(comparison.beforeSeverityClass)}
-            />
-            <Metric
-              label="After severity"
-              value={String(comparison.afterSeverityClass)}
-            />
-            <Metric label="Improvement" value={improvementLabel} />
-          </dl>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SummaryItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="border-b border-slate-100 pb-3">
-      <dt className="text-sm text-slate-500">{label}</dt>
-      <dd className="mt-1 text-sm font-semibold text-slate-900">{value}</dd>
-    </div>
-  );
-}
+function StatusRow({ complete = false, label, value }: { complete?: boolean; label: string; value: string }) { return <div className={`flex items-center gap-4 ${complete ? "text-[#3c6751]" : "text-[#6f797a]"}`}><div className={`flex size-11 items-center justify-center rounded-full ${complete ? "bg-[#bbeacf]" : "bg-[#e2e9ec]"}`}>{complete ? <Check className="size-6" /> : <Clock3 className="size-6" />}</div><div><p className="text-sm">{label}</p><p className="text-xl font-bold">{value}</p></div></div>; }
+function TimelineRow({ emphasized = false, icon: Icon, label, time }: { emphasized?: boolean; icon: typeof Accessibility; label: string; time: string }) { return <div className="flex items-center gap-4"><div className={`relative z-10 flex size-8 items-center justify-center rounded-full border-2 ${emphasized ? "border-[#bbeacf] bg-[#bbeacf] text-[#406b55]" : "border-[#bfc8c9] bg-white text-[#3f484a]"}`}><Icon className="size-4" /></div><div><p className="font-bold">{label}</p><p className="text-sm text-[#3f484a]">{time}</p></div></div>; }
+function MovementCard({ label, value }: { label: string; value: number }) { return <div className="rounded-xl bg-white p-5 shadow-sm"><p className="text-sm text-[#3f484a]">{label}</p><p className="mt-3 text-2xl font-bold">{formatMovement(value)}</p><p className="mt-1 text-xs text-[#6f797a]">movement index</p></div>; }
+function TipCard({ children, icon: Icon, title }: { children: React.ReactNode; icon: typeof Table2; title: string }) { return <div className="rounded-2xl border border-[#dde4e6] bg-white p-6"><div className="flex size-12 items-center justify-center rounded-full bg-[#eef5f7] text-[#3c6751]"><Icon className="size-6" /></div><h2 className="mt-5 text-xl font-semibold">{title}</h2><p className="mt-3 text-base leading-7 text-[#3f484a]">{children}</p></div>; }
+function StickyActions({ children }: { children: React.ReactNode }) { return <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[#dde4e6] bg-[#f4fafd]/95 px-5 pb-[max(24px,env(safe-area-inset-bottom))] pt-4 backdrop-blur"><div className="mx-auto flex w-full max-w-[600px] flex-col gap-3">{children}</div></div>; }
+function HelpSheet({ onClose }: { onClose: () => void }) { return <div className="fixed inset-0 z-[120] flex items-end bg-[#161d1f]/35 p-4 sm:items-center sm:justify-center" role="dialog" aria-modal="true" aria-labelledby="test-help-title"><div className="w-full rounded-2xl bg-white p-6 shadow-xl sm:max-w-md"><div className="flex items-center justify-between"><h2 className="text-xl font-bold text-[#004349]" id="test-help-title">About this test</h2><button aria-label="Close help" className="flex size-12 items-center justify-center rounded-full text-[#004349]" onClick={onClose} type="button"><X className="size-6" /></button></div><p className="mt-3 text-base leading-7 text-[#3f484a]">The test records 10 seconds of smartphone accelerometer movement. It never uses the camera or microphone.</p><p className="mt-4 rounded-xl bg-[#eef5f7] p-4 text-sm leading-6 text-[#3f484a]">{APP_SAFETY_NOTICE}</p><button className="mt-5 min-h-12 w-full rounded-xl bg-[#004349] px-5 font-bold text-white" onClick={onClose} type="button">Got it</button></div></div>; }
+function formatTime(date: Date) { return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date); }
+function formatMovement(value: number) { if (!Number.isFinite(value)) return "—"; return value < 0.01 ? value.toFixed(4) : value < 1 ? value.toFixed(3) : value.toFixed(2); }
