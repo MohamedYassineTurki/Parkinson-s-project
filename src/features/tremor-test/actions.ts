@@ -36,6 +36,7 @@ const sampleSchema = z.object({
 
 const recordingSchema = z.object({
   medicationId: z.string().uuid(),
+  doseSlot: z.number().int().min(0).max(23),
   context: z.enum(["before_medication", "after_medication"]),
   doseTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).or(z.literal("")),
   notes: z.string().trim().max(500),
@@ -106,6 +107,7 @@ export async function saveTremorRecording(input: SaveRecordingInput): Promise<Sa
         patientProfileId: patient.id,
         medicationId: medication.id,
         medicationIntakeId,
+        doseSlot: data.doseSlot,
         context: data.context,
         startedAt: new Date(data.startedAt),
         completedAt: new Date(data.completedAt),
@@ -146,11 +148,11 @@ export async function saveTremorRecording(input: SaveRecordingInput): Promise<Sa
       }
 
       const [before] = await tx
-        .select({ id: tremorTestSessions.id, startedAt: tremorTestSessions.startedAt, tremorPower: tremorResults.tremorPower })
+        .select({ id: tremorTestSessions.id, startedAt: tremorTestSessions.startedAt, tremorPower: tremorResults.tremorPower, doseSlot: tremorTestSessions.doseSlot })
         .from(tremorTestSessions)
         .innerJoin(tremorResults, eq(tremorResults.sessionId, tremorTestSessions.id))
         .leftJoin(tremorTestPairs, eq(tremorTestPairs.beforeSessionId, tremorTestSessions.id))
-        .where(and(eq(tremorTestSessions.patientProfileId, patient.id), eq(tremorTestSessions.medicationId, medication.id), eq(tremorTestSessions.context, "before_medication"), eq(tremorTestSessions.qualityStatus, "valid"), eq(tremorResults.algorithmVersion, canonicalAnalysis.algorithmVersion), gte(tremorTestSessions.startedAt, new Date(session.startedAt.getTime() - 6 * 60 * 60 * 1_000)), isNull(tremorTestPairs.id)))
+        .where(and(eq(tremorTestSessions.patientProfileId, patient.id), eq(tremorTestSessions.medicationId, medication.id), eq(tremorTestSessions.doseSlot, data.doseSlot), eq(tremorTestSessions.context, "before_medication"), eq(tremorTestSessions.qualityStatus, "valid"), eq(tremorResults.algorithmVersion, canonicalAnalysis.algorithmVersion), gte(tremorTestSessions.startedAt, new Date(session.startedAt.getTime() - 6 * 60 * 60 * 1_000)), isNull(tremorTestPairs.id)))
         .orderBy(desc(tremorTestSessions.startedAt))
         .limit(1);
 

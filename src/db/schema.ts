@@ -276,6 +276,7 @@ export const tremorTestSessions = pgTable(
       () => medicationIntakes.id,
       { onDelete: "set null" },
     ),
+    doseSlot: integer("dose_slot"),
     context: testContext("context").notNull(),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -295,6 +296,7 @@ export const tremorTestSessions = pgTable(
     index("tremor_sessions_medication_idx").on(table.medicationId),
     index("tremor_sessions_started_at_idx").on(table.startedAt),
     index("tremor_sessions_context_idx").on(table.context),
+    index("tremor_sessions_dose_slot_idx").on(table.doseSlot),
   ],
 );
 

@@ -46,7 +46,7 @@ const protocolSteps = [
   "Hold the position for the full 10-second recording.",
 ];
 
-type MedicationOption = { id: string; name: string; dose: string };
+type MedicationOption = { id: string; name: string; dose: string; scheduleTimes: string[] };
 
 export function TremorTestWorkflow({ medications }: { medications: MedicationOption[] }) {
   const [step, setStep] = useState<TremorTestStep>("setup");
@@ -56,6 +56,7 @@ export function TremorTestWorkflow({ medications }: { medications: MedicationOpt
     medications[0] ? `${medications[0].name} ${medications[0].dose}` : "",
   );
   const [doseTime, setDoseTime] = useState("");
+  const [doseSlot, setDoseSlot] = useState(0);
   const [notes, setNotes] = useState("");
   const [recording, setRecording] = useState<SensorRecording | null>(null);
   const [recordingsByContext, setRecordingsByContext] = useState<
@@ -89,6 +90,7 @@ export function TremorTestWorkflow({ medications }: { medications: MedicationOpt
     setSaveState({ status: "saving", message: "Saving test result..." });
     const result = await saveTremorRecording({
       medicationId,
+      doseSlot,
       context: completedRecording.context,
       doseTime,
       notes,
@@ -117,14 +119,27 @@ export function TremorTestWorkflow({ medications }: { medications: MedicationOpt
           <SetupStep
             context={context}
             doseTime={doseTime}
+            doseSlot={doseSlot}
             medicationId={medicationId}
             medications={medications}
             notes={notes}
-            onContextChange={setContext}
+            onContextChange={(nextContext) => {
+              setContext(nextContext);
+              setRecording(null);
+              setRecordingsByContext({});
+            }}
             onDoseTimeChange={setDoseTime}
+            onDoseSlotChange={(slot, time) => {
+              setDoseSlot(slot);
+              setDoseTime(time);
+              setRecording(null);
+              setRecordingsByContext({});
+            }}
             onMedicationChange={(id, name) => {
               setMedicationId(id);
               setMedicationName(name);
+              setDoseSlot(0);
+              setDoseTime(medications.find((item) => item.id === id)?.scheduleTimes[0] ?? "");
             }}
             onNotesChange={setNotes}
             onNext={() => setStep("instructions")}
@@ -157,6 +172,7 @@ export function TremorTestWorkflow({ medications }: { medications: MedicationOpt
             value={medicationName.trim() || "Not entered yet"}
           />
           <SummaryItem label="Dose time" value={doseTime || "Not entered yet"} />
+          <SummaryItem label="Dose cycle" value={`Dose ${doseSlot + 1} of ${Math.max(medications.find((item) => item.id === medicationId)?.scheduleTimes.length ?? 0, 1)}`} />
           <SummaryItem label="Duration" value="10 seconds" />
           <SummaryItem
             label="Signal source"
@@ -172,7 +188,7 @@ export function TremorTestWorkflow({ medications }: { medications: MedicationOpt
           />
         </dl>
 
-        <RecordedPairStatus recordingsByContext={recordingsByContext} />
+        <RecordedPairStatus doseSlot={doseSlot} recordingsByContext={recordingsByContext} />
 
         {comparison ? <ComparisonPanel comparison={comparison} /> : null}
 
@@ -218,10 +234,12 @@ type SetupStepProps = {
   medicationId: string;
   medications: MedicationOption[];
   doseTime: string;
+  doseSlot: number;
   notes: string;
   onContextChange: (value: TremorTestContext) => void;
   onMedicationChange: (id: string, name: string) => void;
   onDoseTimeChange: (value: string) => void;
+  onDoseSlotChange: (slot: number, time: string) => void;
   onNotesChange: (value: string) => void;
   onNext: () => void;
 };
@@ -231,13 +249,17 @@ function SetupStep({
   medicationId,
   medications,
   doseTime,
+  doseSlot,
   notes,
   onContextChange,
   onMedicationChange,
   onDoseTimeChange,
+  onDoseSlotChange,
   onNotesChange,
   onNext,
 }: SetupStepProps) {
+  const selectedMedication = medications.find((item) => item.id === medicationId);
+  const doseTimes = selectedMedication?.scheduleTimes.length ? selectedMedication.scheduleTimes : [""];
   return (
     <div>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -261,6 +283,24 @@ function SetupStep({
         ))}
       </div>
 
+      <div className="mt-5 rounded-2xl border border-[#8fd1d9] bg-[#eef5f7] p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-bold text-[#004349]">Choose the dose you are tracking</p>
+            <p className="mt-1 text-sm leading-6 text-[#3f484a]">Use the same dose number for both tests. Your after-medication test will pair with this before-medication test.</p>
+          </div>
+          <span className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-bold text-[#244f3a]">Dose {doseSlot + 1} / {doseTimes.length}</span>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {doseTimes.map((time, index) => (
+            <button className={`min-h-14 rounded-xl border px-3 py-2 text-left ${doseSlot === index ? "border-[#004349] bg-white ring-2 ring-[#bbeacf]" : "border-[#bfc8c9] bg-white/60"}`} key={`${index}-${time}`} onClick={() => onDoseSlotChange(index, time)} type="button">
+              <span className="block text-xs font-bold uppercase tracking-wider text-[#6f797a]">Dose {index + 1}</span>
+              <span className="mt-1 block text-sm font-bold text-[#161d1f]">{time || "Time not set"}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <div>
           <label className="text-sm font-medium text-slate-700" htmlFor="medication">
@@ -280,7 +320,7 @@ function SetupStep({
         </div>
         <div>
           <label className="text-sm font-medium text-slate-700" htmlFor="dose-time">
-            {context === "after_medication" ? "Dose taken at" : "Next dose time"}
+            {context === "after_medication" ? "When did you take this dose?" : "Scheduled dose time"}
           </label>
           <input
             className="mt-2 min-h-12 w-full rounded-xl border border-[#bfc8c9] bg-white px-4 text-base outline-none focus:border-[#004349] focus:ring-2 focus:ring-[#bbeacf]"
@@ -530,7 +570,7 @@ function ReadyStep({
           type="button"
         >
           <RotateCcw className="size-4" aria-hidden="true" />
-          Restart setup
+          Retake this dose
         </button>
       </div>
     </div>
@@ -652,8 +692,10 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function RecordedPairStatus({
+  doseSlot,
   recordingsByContext,
 }: {
+  doseSlot: number;
   recordingsByContext: Partial<Record<TremorTestContext, SensorRecording>>;
 }) {
   const before = recordingsByContext.before_medication;
@@ -661,7 +703,8 @@ function RecordedPairStatus({
 
   return (
     <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
-      <p className="text-sm font-semibold text-slate-950">Comparison pair</p>
+      <p className="text-sm font-semibold text-slate-950">Dose {doseSlot + 1} comparison pair</p>
+      <p className="mt-1 text-xs leading-5 text-slate-500">Run both sides with the same dose number to compare medication response.</p>
       <div className="mt-3 grid gap-3 text-sm">
         <PairStatusItem label="Before medication" recording={before} />
         <PairStatusItem label="After medication" recording={after} />
