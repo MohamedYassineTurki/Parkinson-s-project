@@ -19,11 +19,11 @@ export default async function PatientDashboardPage() {
     <DashboardShell
       description="Track standardized accelerometer tremor tests around medication timing."
       navItems={[
-        { href: routes.patient.onboarding, label: "Onboarding" },
-        { href: routes.patient.privacy, label: "Privacy" },
+        { href: routes.patient.root, label: "Dashboard" },
         { href: routes.patient.medications, label: "Medications" },
         { href: routes.patient.test, label: "Run test" },
         { href: routes.patient.history, label: "History" },
+        { href: routes.patient.onboarding, label: "Profile" },
       ]}
       title="Patient dashboard"
     >

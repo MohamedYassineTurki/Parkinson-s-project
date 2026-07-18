@@ -18,5 +18,5 @@ export default async function PatientMedicationsPage() {
   const schedules = await db.select().from(medicationSchedules).orderBy(asc(medicationSchedules.sortOrder));
   const views = rows.map((row) => ({ ...row, scheduleTimes: schedules.filter((schedule) => schedule.medicationId === row.id).map((schedule) => schedule.scheduledLocalTime.slice(0, 5)) }));
 
-  return <DashboardShell description="Add, update, archive, or restore medications and their daily schedules." navItems={[{ href: routes.patient.root, label: "Dashboard" }, { href: routes.patient.test, label: "Run test" }, { href: routes.patient.history, label: "History" }]} title="Medications"><MedicationManager medications={views} /></DashboardShell>;
+  return <DashboardShell description="Add, update, archive, or restore medications and their daily schedules." navItems={[{ href: routes.patient.root, label: "Dashboard" }, { href: routes.patient.medications, label: "Medications" }, { href: routes.patient.test, label: "Run test" }, { href: routes.patient.history, label: "History" }, { href: routes.patient.onboarding, label: "Profile" }]} title="Medications"><MedicationManager medications={views} /></DashboardShell>;
 }

@@ -32,6 +32,8 @@ export default async function PatientTestPage() {
         { href: routes.patient.medications, label: "Medications" },
         { href: routes.patient.privacy, label: "Privacy" },
         { href: routes.patient.history, label: "History" },
+        { href: routes.patient.test, label: "Run test" },
+        { href: routes.patient.onboarding, label: "Profile" },
       ]}
       title="Run tremor test"
     >

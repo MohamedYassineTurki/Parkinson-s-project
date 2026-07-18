@@ -8,11 +8,11 @@ export default async function PatientOnboardingPage() {
 
   return (
     <DashboardShell
-      description="Collect patient profile, medication schedule, and optional doctor connection."
+      description="Review or update your personal details, medication schedule, and optional doctor connection."
       navItems={[
         { href: routes.patient.onboarding, label: "Onboarding" },
       ]}
-      title="Patient onboarding"
+      title="Your profile"
     >
       <PatientOnboardingForm />
     </DashboardShell>

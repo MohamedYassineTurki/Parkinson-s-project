@@ -17,7 +17,8 @@ export default async function DoctorPatientsPage() {
       description="Only patients with an active care relationship should be visible here."
       navItems={[
         { href: routes.doctor.root, label: "Dashboard" },
-        { href: routes.doctor.onboarding, label: "Onboarding" },
+        { href: routes.doctor.patients, label: "Patients" },
+        { href: routes.doctor.onboarding, label: "Profile" },
       ]}
       title="Connected patients"
     >

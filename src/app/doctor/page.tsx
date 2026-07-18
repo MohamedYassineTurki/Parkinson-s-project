@@ -22,8 +22,9 @@ export default async function DoctorDashboardPage() {
     <DashboardShell
       description="Review connected patients, longitudinal tremor trends, and medication-response alerts."
       navItems={[
-        { href: routes.doctor.onboarding, label: "Onboarding" },
+        { href: routes.doctor.root, label: "Dashboard" },
         { href: routes.doctor.patients, label: "Patients" },
+        { href: routes.doctor.onboarding, label: "Profile" },
       ]}
       title="Doctor dashboard"
     >

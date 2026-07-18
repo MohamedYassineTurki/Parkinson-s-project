@@ -24,6 +24,8 @@ export default async function PatientHistoryPage() {
         { href: routes.patient.medications, label: "Medications" },
         { href: routes.patient.privacy, label: "Privacy" },
         { href: routes.patient.test, label: "Run test" },
+        { href: routes.patient.history, label: "History" },
+        { href: routes.patient.onboarding, label: "Profile" },
       ]}
       title="Patient history"
     >
