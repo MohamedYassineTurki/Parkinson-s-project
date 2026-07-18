@@ -66,8 +66,22 @@ const recordingSchema = z.object({
 });
 
 export type SaveRecordingInput = z.infer<typeof recordingSchema>;
+export type SavedPairComparison = {
+  beforeRecordedAt: string;
+  afterRecordedAt: string;
+  medicationTakenAt: string | null;
+  beforePower: number;
+  afterPower: number;
+  improvementPercent: number | null;
+};
 export type SaveRecordingResult =
-  | { ok: true; sessionId: string; pairId: string | null; mlStatus: "success" | "unavailable" | "failed" }
+  | {
+      ok: true;
+      sessionId: string;
+      pairId: string | null;
+      mlStatus: "success" | "unavailable" | "failed";
+      pairComparison: SavedPairComparison | null;
+    }
   | { ok: false; message: string };
 
 export type DailyDosePairingStatus = {
@@ -204,10 +218,12 @@ export async function saveTremorRecording(input: SaveRecordingInput): Promise<Sa
   try {
     const saved = await db.transaction(async (tx) => {
       let medicationIntakeId: string | null = null;
+      let medicationTakenAt: Date | null = null;
       if (data.context === "after_medication" && data.doseTime) {
         const takenAt = combineDateAndTime(new Date(data.startedAt), data.doseTime);
         const [intake] = await tx.insert(medicationIntakes).values({ patientProfileId: patient.id, medicationId: medication.id, takenAt, dose: medication.dose, notes: data.notes || null }).returning({ id: medicationIntakes.id });
         medicationIntakeId = intake.id;
+        medicationTakenAt = takenAt;
       }
 
       const qualityNotes = [...canonicalQuality.notes, ...canonicalAnalysis.notes, ...(data.notes ? [`Patient note: ${data.notes}`] : [])].join("\n") || null;
@@ -257,7 +273,7 @@ export async function saveTremorRecording(input: SaveRecordingInput): Promise<Sa
       });
 
       if (data.context !== "after_medication" || canonicalQuality.status !== "valid") {
-        return { sessionId: session.id, pairId: null, personalStatus: personalComparison.status };
+        return { sessionId: session.id, pairId: null, personalStatus: personalComparison.status, pairComparison: null };
       }
 
       const day = getLocalDayBounds(session.startedAt, data.timezoneOffsetMinutes);
@@ -279,7 +295,7 @@ export async function saveTremorRecording(input: SaveRecordingInput): Promise<Sa
         .orderBy(desc(tremorTestSessions.startedAt));
 
       const before = beforeCandidates[0];
-      if (!before) return { sessionId: session.id, pairId: null, personalStatus: personalComparison.status };
+      if (!before) return { sessionId: session.id, pairId: null, personalStatus: personalComparison.status, pairComparison: null };
 
       // One daily dose has one current comparison. Retakes replace that
       // comparison while every raw before/after session remains in history.
@@ -289,12 +305,30 @@ export async function saveTremorRecording(input: SaveRecordingInput): Promise<Sa
       ));
       const improvementPercent = before.tremorPower > 0.0001 ? ((before.tremorPower - canonicalAnalysis.tremorPower) / before.tremorPower) * 100 : null;
       const [pair] = await tx.insert(tremorTestPairs).values({ patientProfileId: patient.id, medicationId: medication.id, beforeSessionId: before.id, afterSessionId: session.id, improvementPercent, responseWindowMinutes: Math.round((session.startedAt.getTime() - before.startedAt.getTime()) / 60_000) }).returning({ id: tremorTestPairs.id });
-      return { sessionId: session.id, pairId: pair.id, personalStatus: personalComparison.status };
+      return {
+        sessionId: session.id,
+        pairId: pair.id,
+        personalStatus: personalComparison.status,
+        pairComparison: {
+          beforeRecordedAt: before.startedAt.toISOString(),
+          afterRecordedAt: session.startedAt.toISOString(),
+          medicationTakenAt: medicationTakenAt?.toISOString() ?? null,
+          beforePower: before.tremorPower,
+          afterPower: canonicalAnalysis.tremorPower,
+          improvementPercent,
+        },
+      };
     });
 
     if (saved.pairId) await updateWorseningAlert(patient.id, saved.sessionId);
     if (saved.personalStatus === "above_usual") await updatePersonalTrendAlert(patient.id, saved.sessionId, medication.id, data.context, canonicalAnalysis.algorithmVersion);
-    return { ok: true, sessionId: saved.sessionId, pairId: saved.pairId, mlStatus: mlInference.status };
+    return {
+      ok: true,
+      sessionId: saved.sessionId,
+      pairId: saved.pairId,
+      mlStatus: mlInference.status,
+      pairComparison: saved.pairComparison,
+    };
   } catch (error) {
     console.error("Failed to save tremor recording", error);
     return { ok: false, message: "The test could not be saved. Please try again." };

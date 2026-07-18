@@ -12,6 +12,7 @@ export async function getPatientProfileForUser(userId: string) {
       firstName: profiles.firstName,
       lastName: profiles.lastName,
       dateOfBirth: patientProfiles.dateOfBirth,
+      phoneNumber: patientProfiles.phoneNumber,
     })
     .from(profiles)
     .innerJoin(patientProfiles, eq(patientProfiles.profileId, profiles.id))

@@ -22,6 +22,7 @@ export async function requestDoctorAccess(_state: SharingState, formData: FormDa
   const [relationship] = await db.insert(careRelationships).values({ patientProfileId: patient.id, doctorProfileId: doctor.id, status: "pending" }).onConflictDoUpdate({ target: [careRelationships.patientProfileId, careRelationships.doctorProfileId], set: { status: "pending", acceptedAt: null, revokedAt: null, updatedAt: new Date() } }).returning({ id: careRelationships.id });
   await db.insert(auditLogs).values({ actorProfileId: patient.profileId, actorType: "patient", action: "doctor_access_requested", targetType: "care_relationship", targetId: relationship.id, metadata: { consent: true } });
   revalidatePath(routes.patient.privacy);
+  revalidatePath(routes.patient.onboarding);
   return { status: "success", message: "Connection request sent to the doctor." };
 }
 
@@ -33,4 +34,5 @@ export async function revokeDoctorAccess(relationshipId: string) {
   const [relationship] = await db.update(careRelationships).set({ status: "revoked", revokedAt: new Date(), updatedAt: new Date() }).where(and(eq(careRelationships.id, relationshipId), eq(careRelationships.patientProfileId, patient.id))).returning({ id: careRelationships.id });
   if (relationship) await db.insert(auditLogs).values({ actorProfileId: patient.profileId, actorType: "patient", action: "doctor_access_revoked", targetType: "care_relationship", targetId: relationship.id });
   revalidatePath(routes.patient.privacy);
+  revalidatePath(routes.patient.onboarding);
 }

@@ -2,6 +2,7 @@
 
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 
 import { getDb } from "@/db/client";
 import {
@@ -54,6 +55,9 @@ export async function savePatientOnboarding(
   }
 
   const input = parsed.data;
+  const formMode = formData.get("formMode") === "profile" ? "profile" : "onboarding";
+  const medicationIdResult = z.string().uuid().safeParse(formData.get("medicationId"));
+  const medicationId = medicationIdResult.success ? medicationIdResult.data : null;
   const db = getDb();
 
   try {
@@ -94,25 +98,44 @@ export async function savePatientOnboarding(
         })
         .returning();
 
-      await tx
-        .update(medications)
-        .set({
-          isActive: false,
-          updatedAt: new Date(),
-        })
-        .where(eq(medications.patientProfileId, patientProfile.id));
-
-      const [medication] = await tx
-        .insert(medications)
-        .values({
-          patientProfileId: patientProfile.id,
-          name: input.medicationName,
-          dose: input.dose,
-          frequencyPerDay: input.frequencyPerDay,
-          instructions: input.instructions,
-          isActive: true,
-        })
-        .returning();
+      let medication: { id: string };
+      if (formMode === "profile" && medicationId) {
+        const [updatedMedication] = await tx
+          .update(medications)
+          .set({
+            name: input.medicationName,
+            dose: input.dose,
+            frequencyPerDay: input.frequencyPerDay,
+            instructions: input.instructions,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(medications.id, medicationId),
+            eq(medications.patientProfileId, patientProfile.id),
+            eq(medications.isActive, true),
+          ))
+          .returning({ id: medications.id });
+        if (!updatedMedication) throw new MedicationOwnershipError();
+        medication = updatedMedication;
+        await tx.delete(medicationSchedules).where(eq(medicationSchedules.medicationId, medication.id));
+      } else {
+        await tx
+          .update(medications)
+          .set({ isActive: false, updatedAt: new Date() })
+          .where(eq(medications.patientProfileId, patientProfile.id));
+        const [createdMedication] = await tx
+          .insert(medications)
+          .values({
+            patientProfileId: patientProfile.id,
+            name: input.medicationName,
+            dose: input.dose,
+            frequencyPerDay: input.frequencyPerDay,
+            instructions: input.instructions,
+            isActive: true,
+          })
+          .returning({ id: medications.id });
+        medication = createdMedication;
+      }
 
       await tx.insert(medicationSchedules).values(
         input.scheduleTimes.map((scheduledLocalTime, sortOrder) => ({
@@ -161,7 +184,7 @@ export async function savePatientOnboarding(
       await tx.insert(auditLogs).values({
         actorProfileId: profile.id,
         actorType: "patient",
-        action: "patient_onboarding_saved",
+        action: formMode === "profile" ? "patient_profile_updated" : "patient_onboarding_saved",
         targetType: "patient_profile",
         targetId: patientProfile.id,
         metadata: {
@@ -182,6 +205,14 @@ export async function savePatientOnboarding(
       };
     }
 
+    if (error instanceof MedicationOwnershipError) {
+      return {
+        status: "error",
+        message: "The medication could not be updated.",
+        errors: { form: "Refresh the page and try again." },
+      };
+    }
+
     console.error("Failed to save patient onboarding", error);
 
     return {
@@ -195,10 +226,12 @@ export async function savePatientOnboarding(
 
   revalidatePath(routes.patient.root);
   revalidatePath(routes.patient.onboarding);
+  revalidatePath(routes.patient.medications);
+  revalidatePath(routes.patient.test);
 
   return {
     status: "success",
-    message: "Patient onboarding saved. You can run a tremor test next.",
+    message: formMode === "profile" ? "Your profile changes were saved." : "Setup complete. Your dashboard is ready.",
     errors: {},
   };
 }
@@ -220,5 +253,11 @@ function mapZodErrors(error: { issues: Array<{ path: PropertyKey[]; message: str
 class DoctorInviteCodeError extends Error {
   constructor() {
     super("Doctor invite code not found.");
+  }
+}
+
+class MedicationOwnershipError extends Error {
+  constructor() {
+    super("Medication does not belong to the current patient.");
   }
 }

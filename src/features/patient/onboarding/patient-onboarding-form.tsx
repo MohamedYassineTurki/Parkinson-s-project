@@ -15,7 +15,25 @@ import { routes } from "@/lib/routes";
 const defaultScheduleTimes = ["08:00", "14:00", "20:00"];
 const initialPatientOnboardingState: PatientOnboardingState = { status: "idle", message: "", errors: {} };
 
-export function PatientOnboardingForm() {
+export type PatientProfileFormData = {
+  firstName: string;
+  lastName: string;
+  dateOfBirth: string;
+  phoneNumber: string;
+  medicationId: string;
+  medicationName: string;
+  dose: string;
+  instructions: string;
+  scheduleTimes: string[];
+};
+
+export function PatientOnboardingForm({
+  initialData,
+  mode,
+}: {
+  initialData?: PatientProfileFormData;
+  mode: "onboarding" | "profile";
+}) {
   const [state, formAction] = useActionState(
     savePatientOnboarding,
     initialPatientOnboardingState,
@@ -25,7 +43,9 @@ export function PatientOnboardingForm() {
     ...state,
     errors: { ...initialPatientOnboardingState.errors, ...state?.errors },
   };
-  const [scheduleTimes, setScheduleTimes] = useState(defaultScheduleTimes);
+  const [scheduleTimes, setScheduleTimes] = useState(
+    initialData?.scheduleTimes.length ? initialData.scheduleTimes : defaultScheduleTimes,
+  );
 
   const frequency = useMemo(() => String(scheduleTimes.length), [scheduleTimes]);
 
@@ -45,16 +65,24 @@ export function PatientOnboardingForm() {
 
   return (
     <form action={formAction} className="space-y-6">
-      <div className="flex items-start gap-3 rounded-2xl border border-[#8fd1d9] bg-[#eef5f7] p-4 text-[#004349]" role="status">
-        <Info className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
-        <div>
-          <p className="font-bold">Complete your setup to unlock your workspace</p>
-          <p className="mt-1 text-sm leading-6 text-[#3f484a]">
-            Your dashboard, medication tools, history, and tremor tests will become
-            available after you save the required patient and medication information.
-          </p>
+      <input name="formMode" type="hidden" value={mode} />
+      <input name="medicationId" type="hidden" value={initialData?.medicationId ?? ""} />
+      {mode === "onboarding" ? (
+        <div className="flex items-start gap-3 rounded-2xl border border-[#8fd1d9] bg-[#eef5f7] p-4 text-[#004349]" role="status">
+          <Info className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
+          <div>
+            <p className="font-bold">Complete your setup to unlock your workspace</p>
+            <p className="mt-1 text-sm leading-6 text-[#3f484a]">
+              Save the required patient and medication information to access your dashboard and tremor tests.
+            </p>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex items-start gap-3 rounded-2xl border border-[#bbeacf] bg-[#eef5f7] p-4 text-[#004349]" role="status">
+          <Info className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
+          <div><p className="font-bold">Your saved information</p><p className="mt-1 text-sm leading-6 text-[#3f484a]">Update only what has changed. Your previous tests and history will remain connected.</p></div>
+        </div>
+      )}
       {currentState.message ? (
         <div
           className={`rounded-lg border p-4 text-sm ${
@@ -67,7 +95,7 @@ export function PatientOnboardingForm() {
             <span>{currentState.message}</span>
             {currentState.status === "success" ? (
               <Link className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-[#004349] px-4 text-sm font-bold text-white" href={routes.patient.root}>
-                Open dashboard <ArrowRight className="size-4" aria-hidden="true" />
+                Back to dashboard <ArrowRight className="size-4" aria-hidden="true" />
               </Link>
             ) : null}
           </div>
@@ -82,6 +110,7 @@ export function PatientOnboardingForm() {
             error={currentState.errors.firstName}
             label="First name"
             name="firstName"
+            defaultValue={initialData?.firstName}
             required
           />
           <Field
@@ -89,12 +118,14 @@ export function PatientOnboardingForm() {
             error={currentState.errors.lastName}
             label="Last name"
             name="lastName"
+            defaultValue={initialData?.lastName}
             required
           />
           <Field
             error={currentState.errors.dateOfBirth}
             label="Date of birth"
             name="dateOfBirth"
+            defaultValue={initialData?.dateOfBirth}
             type="date"
           />
           <Field
@@ -102,6 +133,7 @@ export function PatientOnboardingForm() {
             error={currentState.errors.phoneNumber}
             label="Phone number"
             name="phoneNumber"
+            defaultValue={initialData?.phoneNumber}
             placeholder="+216 ..."
             type="tel"
           />
@@ -126,6 +158,7 @@ export function PatientOnboardingForm() {
             error={currentState.errors.medicationName}
             label="Medication name"
             name="medicationName"
+            defaultValue={initialData?.medicationName}
             placeholder="Levodopa"
             required
           />
@@ -133,6 +166,7 @@ export function PatientOnboardingForm() {
             error={currentState.errors.dose}
             label="Dose"
             name="dose"
+            defaultValue={initialData?.dose}
             placeholder="100mg"
             required
           />
@@ -199,6 +233,7 @@ export function PatientOnboardingForm() {
             id="instructions"
             name="instructions"
             placeholder="Optional notes about timing, food, or routine."
+            defaultValue={initialData?.instructions}
           />
           {currentState.errors.instructions ? (
             <p className="mt-2 text-sm text-red-600">{currentState.errors.instructions}</p>
@@ -206,7 +241,7 @@ export function PatientOnboardingForm() {
         </div>
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+      {mode === "onboarding" ? <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold tracking-normal">Doctor connection</h2>
         <p className="mt-1 text-sm text-slate-600">
           Optional. If your doctor gave you an invite code, enter it to request data
@@ -233,13 +268,13 @@ export function PatientOnboardingForm() {
             {currentState.errors.doctorSharingConsent}
           </p>
         ) : null}
-      </section>
+      </section> : null}
 
       {currentState.errors.form ? (
         <p className="text-sm font-medium text-red-600">{currentState.errors.form}</p>
       ) : null}
 
-      <SubmitButton />
+      <SubmitButton mode={mode} />
     </form>
   );
 }
@@ -252,6 +287,7 @@ type FieldProps = {
   placeholder?: string;
   autoComplete?: string;
   required?: boolean;
+  defaultValue?: string;
 };
 
 function Field({
@@ -262,6 +298,7 @@ function Field({
   placeholder,
   autoComplete,
   required,
+  defaultValue,
 }: FieldProps) {
   return (
     <div>
@@ -275,6 +312,7 @@ function Field({
         name={name}
         placeholder={placeholder}
         required={required}
+        defaultValue={defaultValue}
         type={type}
       />
       {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
@@ -282,7 +320,7 @@ function Field({
   );
 }
 
-function SubmitButton() {
+function SubmitButton({ mode }: { mode: "onboarding" | "profile" }) {
   const { pending } = useFormStatus();
 
   return (
@@ -292,7 +330,7 @@ function SubmitButton() {
       type="submit"
     >
       <Save className="size-4" aria-hidden="true" />
-      {pending ? "Saving..." : "Save onboarding"}
+      {pending ? "Saving..." : mode === "profile" ? "Save changes" : "Save and continue"}
     </button>
   );
 }
