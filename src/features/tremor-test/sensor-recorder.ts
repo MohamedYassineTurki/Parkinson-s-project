@@ -1,6 +1,6 @@
 import type { AccelerationSample, RecordingQuality } from "./types";
 
-const RECORDING_DURATION_MS = 10_000;
+export const RECORDING_DURATION_MS = 10_000;
 const TARGET_SAMPLE_RATE_HZ = 50;
 const MIN_SAMPLE_COUNT = TARGET_SAMPLE_RATE_HZ * 7;
 const MIN_DURATION_MS = 9_000;
@@ -36,6 +36,7 @@ export async function requestMotionPermission(): Promise<PermissionState> {
 export function recordAccelerometerSamples(
   onSample: (sample: AccelerationSample) => void,
   durationMs = RECORDING_DURATION_MS,
+  signal?: AbortSignal,
 ) {
   const samples: AccelerationSample[] = [];
   const startedAt = performance.now();
@@ -63,13 +64,21 @@ export function recordAccelerometerSamples(
     onSample(sample);
   }
 
-  window.addEventListener("devicemotion", handleMotion);
-
   return new Promise<AccelerationSample[]>((resolve) => {
-    window.setTimeout(() => {
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      window.clearTimeout(timeoutId);
       window.removeEventListener("devicemotion", handleMotion);
+      signal?.removeEventListener("abort", finish);
       resolve(samples);
-    }, durationMs);
+    };
+    const timeoutId = window.setTimeout(finish, durationMs);
+
+    window.addEventListener("devicemotion", handleMotion);
+    signal?.addEventListener("abort", finish, { once: true });
+    if (signal?.aborted) finish();
   });
 }
 

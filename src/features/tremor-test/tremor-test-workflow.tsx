@@ -13,8 +13,9 @@ import {
   RotateCcw,
   Smartphone,
   Waves,
+  X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import { compareMedicationResponse } from "./comparison";
@@ -26,6 +27,7 @@ import {
 import {
   evaluateRecordingQuality,
   isDeviceMotionSupported,
+  RECORDING_DURATION_MS,
   recordAccelerometerSamples,
   requestMotionPermission,
 } from "./sensor-recorder";
@@ -101,6 +103,8 @@ export function TremorTestWorkflow({ medications }: { medications: MedicationOpt
     let cancelled = false;
     void loadDailyDoseStatuses(medicationId).then((statuses) => {
       if (!cancelled) setDailyDoseStatuses(statuses);
+    }).catch(() => {
+      if (!cancelled) setDailyDoseStatuses([]);
     });
     return () => {
       cancelled = true;
@@ -493,11 +497,19 @@ function ReadyStep({
   onReset: () => void;
 }) {
   const [status, setStatus] = useState<
-    "idle" | "requesting_permission" | "recording" | "complete" | "error"
+    "idle" | "requesting_permission" | "recording" | "processing" | "complete" | "error"
   >("idle");
   const [samples, setSamples] = useState<AccelerationSample[]>([]);
   const [recording, setRecording] = useState<SensorRecording | null>(null);
   const [error, setError] = useState("");
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const clockIdRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    abortControllerRef.current?.abort();
+    if (clockIdRef.current != null) window.clearInterval(clockIdRef.current);
+  }, []);
 
   async function startRecording() {
     setError("");
@@ -520,10 +532,30 @@ function ReadyStep({
     }
 
     const startedAt = new Date();
+    const clockStartedAt = performance.now();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    setElapsedMs(0);
     setStatus("recording");
+    clockIdRef.current = window.setInterval(() => {
+      setElapsedMs(Math.min(performance.now() - clockStartedAt, RECORDING_DURATION_MS));
+    }, 50);
     const recordedSamples = await recordAccelerometerSamples((sample) => {
       setSamples((current) => [...current, sample]);
-    });
+    }, RECORDING_DURATION_MS, controller.signal);
+    if (clockIdRef.current != null) window.clearInterval(clockIdRef.current);
+    clockIdRef.current = null;
+    abortControllerRef.current = null;
+
+    if (controller.signal.aborted) {
+      setSamples([]);
+      setElapsedMs(0);
+      setStatus("error");
+      setError("Recording stopped. When you are ready, keep the phone steady and start again.");
+      return;
+    }
+
+    setElapsedMs(RECORDING_DURATION_MS);
     const completedAt = new Date();
     const quality = evaluateRecordingQuality(recordedSamples);
     const analysis = analyzeTremorSignal(recordedSamples);
@@ -537,16 +569,28 @@ function ReadyStep({
     };
 
     setRecording(completedRecording);
+    setStatus("processing");
     await onRecordingComplete(completedRecording);
     setStatus("complete");
   }
 
-  const latestSample = samples[samples.length - 1];
-  const elapsedSeconds = latestSample ? Math.min(latestSample.t / 1000, 10) : 0;
-  const progressPercent = Math.round((elapsedSeconds / 10) * 100);
+  const elapsedSeconds = elapsedMs / 1000;
+  const progressPercent = Math.round((elapsedMs / RECORDING_DURATION_MS) * 100);
+
+  function stopRecording() {
+    abortControllerRef.current?.abort();
+  }
 
   return (
     <div>
+      {status === "recording" || status === "processing" ? (
+        <RecordingOverlay
+          elapsedMs={elapsedMs}
+          onStop={stopRecording}
+          processing={status === "processing"}
+          sampleCount={samples.length}
+        />
+      ) : null}
       <div className="rounded-2xl border border-[#bbeacf] bg-[#eef5f7] p-6 text-center">
         <CheckCircle2 className="size-7 text-teal-700" aria-hidden="true" />
         <h2 className="mt-4 text-xl font-bold tracking-tight text-[#004349]">
@@ -579,7 +623,7 @@ function ReadyStep({
           </div>
           <button
             className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-[#004349] px-5 text-sm font-bold text-white hover:bg-[#0d5c63] disabled:cursor-not-allowed disabled:bg-[#9aa7a8]"
-            disabled={status === "requesting_permission" || status === "recording"}
+            disabled={status === "requesting_permission" || status === "recording" || status === "processing"}
             onClick={startRecording}
             type="button"
           >
@@ -636,6 +680,85 @@ function ReadyStep({
           Retake this dose
         </button>
       </div>
+    </div>
+  );
+}
+
+function RecordingOverlay({
+  elapsedMs,
+  onStop,
+  processing,
+  sampleCount,
+}: {
+  elapsedMs: number;
+  onStop: () => void;
+  processing: boolean;
+  sampleCount: number;
+}) {
+  const radius = 120;
+  const circumference = 2 * Math.PI * radius;
+  const progress = Math.min(elapsedMs / RECORDING_DURATION_MS, 1);
+  const remainingSeconds = Math.max(0, Math.ceil((RECORDING_DURATION_MS - elapsedMs) / 1000));
+
+  return (
+    <div className="fixed inset-0 z-[100] flex min-h-[100dvh] flex-col overflow-hidden bg-[#f4fafd] px-5 pb-[max(32px,env(safe-area-inset-bottom))] pt-[max(40px,env(safe-area-inset-top))] text-[#161d1f]">
+      <div className="steady-recorder-glow pointer-events-none absolute left-1/2 top-1/2 size-[125vw] max-h-[680px] max-w-[680px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#bbeacf]/40 blur-[90px]" />
+
+      <header className="relative mx-auto w-full max-w-md text-center">
+        <p className="text-2xl font-semibold leading-8 tracking-[-0.02em] text-[#004349]">Hold your phone steady</p>
+        <p className="mt-2 text-base leading-6 text-[#3f484a]">in your dominant hand.</p>
+      </header>
+
+      <div className="relative mx-auto flex flex-1 items-center justify-center py-8">
+        <div className="relative flex size-[min(74vw,300px)] items-center justify-center">
+          <svg className="absolute inset-0 size-full drop-shadow-sm" viewBox="0 0 260 260" aria-hidden="true">
+            <circle cx="130" cy="130" fill="none" r={radius} stroke="#e2e9ec" strokeWidth="8" />
+            <circle
+              cx="130"
+              cy="130"
+              fill="none"
+              r={radius}
+              stroke="#004349"
+              strokeDasharray={circumference}
+              strokeDashoffset={circumference * progress}
+              strokeLinecap="round"
+              strokeWidth="10"
+              style={{ transform: "rotate(-90deg)", transformOrigin: "50% 50%", transition: "stroke-dashoffset 80ms linear" }}
+            />
+          </svg>
+
+          <div className="absolute inset-[18%] overflow-hidden rounded-full">
+            <svg className="steady-recorder-wave absolute left-1/2 top-1/2 h-24 w-[150%] -translate-x-1/2 -translate-y-1/2 opacity-70" fill="none" viewBox="0 0 240 100" aria-hidden="true">
+              <path d="M-20 50 Q20 42 40 50 T100 50 T160 50 T220 50 T260 50" stroke="#a2d1b6" strokeLinecap="round" strokeWidth="4" />
+              <path d="M-20 50 Q20 58 40 50 T100 50 T160 50 T220 50 T260 50" opacity=".55" stroke="#8fd1d9" strokeLinecap="round" strokeWidth="2" />
+              <path d="M-20 50 Q20 46 40 50 T100 50 T160 50 T220 50 T260 50" opacity=".35" stroke="#3c6751" strokeLinecap="round" strokeWidth="1.5" />
+            </svg>
+          </div>
+
+          <div className="relative flex flex-col items-center justify-center text-center">
+            <span className="text-[44px] font-bold leading-none tracking-[-0.04em] text-[#004349]">
+              {processing ? "Done" : remainingSeconds}
+            </span>
+            <span className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#3f484a]">
+              {processing ? "Processing" : "Seconds"}
+            </span>
+            <span className="sr-only">{sampleCount} accelerometer samples captured</span>
+          </div>
+        </div>
+      </div>
+
+      <footer className="relative mx-auto w-full max-w-md">
+        {processing ? (
+          <div className="flex min-h-14 w-full items-center justify-center rounded-full border border-[#bfc8c9] bg-white/70 px-6 text-sm font-semibold text-[#004349]">
+            Analyzing and saving securely…
+          </div>
+        ) : (
+          <button className="flex min-h-14 w-full items-center justify-center gap-3 rounded-full border-2 border-[#ba1a1a] bg-transparent px-6 text-sm font-semibold text-[#ba1a1a] transition active:scale-[0.98] active:bg-[#ffdad6]" onClick={onStop} type="button">
+            <X className="size-5" aria-hidden="true" />
+            Stop Recording
+          </button>
+        )}
+      </footer>
     </div>
   );
 }

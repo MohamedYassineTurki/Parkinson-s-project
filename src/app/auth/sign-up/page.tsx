@@ -21,15 +21,12 @@ export default async function SignUpPage({
   const initialRole: UserRole = params.role === "doctor" ? "doctor" : "patient";
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f4fafd] px-5 py-8 text-[#161d1f] sm:px-6 sm:py-10">
-      <section className="w-full max-w-lg rounded-3xl border border-[#dce7e9] bg-white p-6 shadow-[0_12px_40px_rgba(0,67,73,0.08)] sm:p-8">
-        <div className="mb-7 flex items-center gap-2.5"><span className="flex size-10 items-center justify-center rounded-full bg-[#004349] text-white">⌁</span><div><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#3f686b]">Parkinson Project</p><p className="font-bold text-[#004349]">SteadyPath</p></div></div>
-        <h1 className="text-[28px] font-bold tracking-tight">Create an account</h1>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
-          Choose the role that matches how you will use the platform.
-        </p>
+    <main className="relative min-h-screen overflow-hidden bg-[#f4fafd] px-5 py-6 text-[#161d1f] sm:px-8 sm:py-8">
+      <div className="pointer-events-none absolute inset-0 opacity-30" style={{ backgroundImage: "repeating-radial-gradient(ellipse at 0 0, transparent 0 22px, #bbeacf 23px 24px, transparent 25px 44px)" }} />
+      <section className="relative mx-auto w-full max-w-4xl">
+        <Link className="inline-flex min-h-12 items-center gap-3 text-[#004349]" href="/"><span className="flex size-10 items-center justify-center rounded-full bg-white shadow-sm">≋</span><span className="text-xl font-bold">SteadyPath</span></Link>
         <SignUpForm initialRole={initialRole} />
-        <p className="mt-5 text-center text-sm text-slate-600">
+        <p className="mx-auto mt-6 max-w-lg text-center text-sm text-slate-600">
           Already registered?{" "}
           <Link className="font-bold text-[#004349] hover:text-[#0d5c63]" href={routes.auth.signIn}>
             Sign in

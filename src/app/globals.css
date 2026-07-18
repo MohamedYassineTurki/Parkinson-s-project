@@ -47,3 +47,28 @@ a {
   background: var(--secondary-container);
   color: var(--primary);
 }
+
+@keyframes steady-recorder-wave {
+  0%, 100% { transform: translate(-50%, -50%); }
+  50% { transform: translate(calc(-50% - 15px), calc(-50% + 2px)); }
+}
+
+@keyframes steady-recorder-glow {
+  0%, 100% { opacity: 0.3; transform: translate(-50%, -50%) scale(0.95); }
+  50% { opacity: 0.5; transform: translate(-50%, -50%) scale(1.05); }
+}
+
+.steady-recorder-wave {
+  animation: steady-recorder-wave 4s ease-in-out infinite;
+}
+
+.steady-recorder-glow {
+  animation: steady-recorder-glow 6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .steady-recorder-wave,
+  .steady-recorder-glow {
+    animation: none;
+  }
+}
