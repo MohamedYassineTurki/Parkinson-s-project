@@ -39,6 +39,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# design references exported from Google Stitch (local only)
+/stitch_parkinson_project_design_system/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

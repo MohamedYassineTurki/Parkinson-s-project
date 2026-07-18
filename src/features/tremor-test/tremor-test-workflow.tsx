@@ -106,10 +106,10 @@ export function TremorTestWorkflow({ medications }: { medications: MedicationOpt
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_0.8fr]">
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="grid gap-5 lg:grid-cols-[1fr_0.8fr]">
+      <section className="rounded-2xl border border-[#dce7e9] bg-white p-5 shadow-[0_4px_18px_rgba(0,67,73,0.06)] sm:p-7">
         <StepHeader step={step} />
-        <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
+        <div className="mb-6 rounded-xl border border-[#dce7e9] bg-[#eef5f7] p-4 text-sm leading-6 text-[#3f484a]">
           {APP_SAFETY_NOTICE}
         </div>
 
@@ -148,8 +148,8 @@ export function TremorTestWorkflow({ medications }: { medications: MedicationOpt
         ) : null}
       </section>
 
-      <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold tracking-normal">Test summary</h2>
+      <aside className="rounded-2xl border border-[#dce7e9] bg-white p-5 shadow-[0_4px_18px_rgba(0,67,73,0.06)] sm:p-6">
+        <h2 className="text-lg font-bold tracking-tight text-[#004349]">Test summary</h2>
         <dl className="mt-5 space-y-4">
           <SummaryItem label="Context" value={selectedContext.label} />
           <SummaryItem
@@ -205,8 +205,8 @@ function StepHeader({ step }: { step: TremorTestStep }) {
   return (
     <div className="mb-6 flex items-start justify-between gap-4">
       <div>
-        <p className="text-sm font-medium text-teal-700">Accelerometer test</p>
-        <h2 className="mt-1 text-xl font-semibold tracking-normal">{label}</h2>
+        <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#20686f]">Accelerometer test</p>
+        <h2 className="mt-1 text-2xl font-bold tracking-tight text-[#161d1f]">{label}</h2>
       </div>
       <Smartphone className="size-7 text-slate-500" aria-hidden="true" />
     </div>
@@ -245,8 +245,8 @@ function SetupStep({
           <button
             className={`rounded-lg border p-4 text-left ${
               context === item.value
-                ? "border-teal-700 bg-teal-50"
-                : "border-slate-200 bg-slate-50 hover:border-teal-700"
+                ? "border-[#004349] bg-[#eef5f7] ring-2 ring-[#bbeacf]"
+                : "border-[#bfc8c9] bg-white hover:border-[#004349]"
             }`}
             key={item.value}
             onClick={() => onContextChange(item.value)}
@@ -267,7 +267,7 @@ function SetupStep({
             Medication
           </label>
           <select
-            className="mt-2 min-h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-teal-700 focus:ring-2 focus:ring-teal-100"
+            className="mt-2 min-h-12 w-full rounded-xl border border-[#bfc8c9] bg-white px-4 text-base outline-none focus:border-[#004349] focus:ring-2 focus:ring-[#bbeacf]"
             id="medication"
             onChange={(event) => {
               const selected = medications.find((item) => item.id === event.target.value);
@@ -283,7 +283,7 @@ function SetupStep({
             {context === "after_medication" ? "Dose taken at" : "Next dose time"}
           </label>
           <input
-            className="mt-2 min-h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-teal-700 focus:ring-2 focus:ring-teal-100"
+            className="mt-2 min-h-12 w-full rounded-xl border border-[#bfc8c9] bg-white px-4 text-base outline-none focus:border-[#004349] focus:ring-2 focus:ring-[#bbeacf]"
             id="dose-time"
             onChange={(event) => onDoseTimeChange(event.target.value)}
             type="time"
@@ -297,7 +297,7 @@ function SetupStep({
           Notes
         </label>
         <textarea
-          className="mt-2 min-h-24 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-teal-700 focus:ring-2 focus:ring-teal-100"
+          className="mt-2 min-h-28 w-full rounded-xl border border-[#bfc8c9] bg-white px-4 py-3 text-base outline-none focus:border-[#004349] focus:ring-2 focus:ring-[#bbeacf]"
           id="test-notes"
           onChange={(event) => onNotesChange(event.target.value)}
           placeholder="Optional: sleep, stress, caffeine, missed dose, unusual symptoms."
@@ -307,7 +307,7 @@ function SetupStep({
 
       <div className="mt-6 flex justify-end">
         <button
-          className="inline-flex items-center justify-center gap-2 rounded-md bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800"
+          className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-[#004349] px-6 text-sm font-bold text-white hover:bg-[#0d5c63]"
           disabled={!medicationId}
           onClick={onNext}
           type="button"
@@ -329,9 +329,9 @@ function InstructionsStep({
 }) {
   return (
     <div>
-      <div className="rounded-lg border border-slate-200 bg-slate-50 p-5">
+      <div className="rounded-2xl border border-[#dce7e9] bg-[#eef5f7] p-5 sm:p-6">
         <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-lg bg-teal-700 text-white">
+          <div className="flex size-12 items-center justify-center rounded-full bg-[#004349] text-white">
             <Hand className="size-5" aria-hidden="true" />
           </div>
           <div>
@@ -358,7 +358,7 @@ function InstructionsStep({
 
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-between">
         <button
-          className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-teal-700 hover:text-teal-700"
+          className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-[#6f797a] bg-white px-5 text-sm font-bold text-[#004349] hover:bg-[#eef5f7]"
           onClick={onBack}
           type="button"
         >
@@ -366,7 +366,7 @@ function InstructionsStep({
           Back
         </button>
         <button
-          className="inline-flex items-center justify-center gap-2 rounded-md bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800"
+          className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-[#004349] px-5 text-sm font-bold text-white hover:bg-[#0d5c63]"
           onClick={onNext}
           type="button"
         >
@@ -444,9 +444,9 @@ function ReadyStep({
 
   return (
     <div>
-      <div className="rounded-lg border border-teal-200 bg-teal-50 p-5">
+      <div className="rounded-2xl border border-[#bbeacf] bg-[#eef5f7] p-6 text-center">
         <CheckCircle2 className="size-7 text-teal-700" aria-hidden="true" />
-        <h2 className="mt-4 text-lg font-semibold tracking-normal text-teal-950">
+        <h2 className="mt-4 text-xl font-bold tracking-tight text-[#004349]">
           Position confirmed
         </h2>
         <p className="mt-2 text-sm leading-6 text-teal-900">
@@ -455,7 +455,7 @@ function ReadyStep({
         </p>
       </div>
 
-      <div className="mt-5 rounded-lg border border-slate-200 bg-white p-4">
+      <div className="mt-5 rounded-2xl border border-[#dce7e9] bg-white p-5">
         <div className="flex items-center gap-3">
           <Clock className="size-5 text-teal-700" aria-hidden="true" />
           <p className="text-sm font-medium text-slate-700">
@@ -464,7 +464,7 @@ function ReadyStep({
         </div>
       </div>
 
-      <div className="mt-5 rounded-lg border border-slate-200 bg-white p-5">
+      <div className="mt-5 rounded-2xl border border-[#dce7e9] bg-white p-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-slate-950">
@@ -475,7 +475,7 @@ function ReadyStep({
             </p>
           </div>
           <button
-            className="inline-flex items-center justify-center gap-2 rounded-md bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-[#004349] px-5 text-sm font-bold text-white hover:bg-[#0d5c63] disabled:cursor-not-allowed disabled:bg-[#9aa7a8]"
             disabled={status === "requesting_permission" || status === "recording"}
             onClick={startRecording}
             type="button"
@@ -491,9 +491,9 @@ function ReadyStep({
 
         {status === "recording" ? (
           <div className="mt-5">
-            <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-3 overflow-hidden rounded-full bg-[#e2e9ec]">
               <div
-                className="h-full bg-teal-700 transition-all"
+                className="h-full rounded-full bg-[#004349] transition-all"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
@@ -517,7 +517,7 @@ function ReadyStep({
 
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-between">
         <button
-          className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-teal-700 hover:text-teal-700"
+          className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-[#6f797a] bg-white px-5 text-sm font-bold text-[#004349] hover:bg-[#eef5f7]"
           onClick={onBack}
           type="button"
         >
@@ -525,7 +525,7 @@ function ReadyStep({
           Back
         </button>
         <button
-          className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-teal-700 hover:text-teal-700"
+          className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-[#6f797a] bg-white px-5 text-sm font-bold text-[#004349] hover:bg-[#eef5f7]"
           onClick={onReset}
           type="button"
         >
