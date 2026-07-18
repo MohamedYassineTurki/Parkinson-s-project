@@ -17,6 +17,8 @@ import { getPatientProfileForUser } from "@/features/patient/data";
 import { getPatientHistory } from "@/features/patient/history/data";
 import { hasWorseningMedicationResponse } from "@/features/patient/history/trends";
 import { requireRole } from "@/lib/auth/session";
+import { evaluateRecordingQuality } from "./sensor-recorder";
+import { analyzeTremorSignal } from "./signal-processing";
 
 const sampleSchema = z.object({
   t: z.number().finite().min(0).max(20_000),
@@ -77,6 +79,10 @@ export async function saveTremorRecording(input: SaveRecordingInput): Promise<Sa
   try {
     const saved = await db.transaction(async (tx) => {
       const data = parsed.data;
+      // Browser metrics are useful for immediate feedback, but the server owns
+      // persisted clinical-monitoring values and never trusts client scores.
+      const canonicalQuality = evaluateRecordingQuality(data.samples);
+      const canonicalAnalysis = analyzeTremorSignal(data.samples);
       let medicationIntakeId: string | null = null;
       if (data.context === "after_medication" && data.doseTime) {
         const takenAt = combineDateAndTime(new Date(data.startedAt), data.doseTime);
@@ -84,7 +90,7 @@ export async function saveTremorRecording(input: SaveRecordingInput): Promise<Sa
         medicationIntakeId = intake.id;
       }
 
-      const qualityNotes = [...data.quality.notes, ...data.analysis.notes, ...(data.notes ? [`Patient note: ${data.notes}`] : [])].join("\n") || null;
+      const qualityNotes = [...canonicalQuality.notes, ...canonicalAnalysis.notes, ...(data.notes ? [`Patient note: ${data.notes}`] : [])].join("\n") || null;
       const [session] = await tx.insert(tremorTestSessions).values({
         patientProfileId: patient.id,
         medicationId: medication.id,
@@ -92,34 +98,34 @@ export async function saveTremorRecording(input: SaveRecordingInput): Promise<Sa
         context: data.context,
         startedAt: new Date(data.startedAt),
         completedAt: new Date(data.completedAt),
-        durationMs: Math.round(data.quality.durationMs),
-        sampleCount: data.quality.sampleCount,
-        sampleRateHz: data.quality.sampleRateHz,
+        durationMs: Math.round(canonicalQuality.durationMs),
+        sampleCount: canonicalQuality.sampleCount,
+        sampleRateHz: canonicalQuality.sampleRateHz,
         deviceInfo: { userAgent: "captured-client-side", source: "DeviceMotionEvent" },
-        qualityStatus: data.quality.status,
+        qualityStatus: canonicalQuality.status,
         qualityNotes,
         rawSamples: data.samples,
       }).returning({ id: tremorTestSessions.id, startedAt: tremorTestSessions.startedAt });
 
       await tx.insert(tremorResults).values({
         sessionId: session.id,
-        severityClass: data.analysis.severityClass,
-        severityLabel: data.analysis.severityLabel,
-        rmsIntensity: data.analysis.rmsIntensity,
-        dominantFrequencyHz: data.analysis.dominantFrequencyHz,
-        tremorPower: data.analysis.tremorPower,
-        confidenceScore: data.quality.status === "valid" ? data.analysis.spectralConcentration : 0,
-        algorithmVersion: data.analysis.algorithmVersion,
+        severityClass: canonicalAnalysis.severityClass,
+        severityLabel: canonicalAnalysis.severityLabel,
+        rmsIntensity: canonicalAnalysis.rmsIntensity,
+        dominantFrequencyHz: canonicalAnalysis.dominantFrequencyHz,
+        tremorPower: canonicalAnalysis.tremorPower,
+        confidenceScore: canonicalQuality.status === "valid" ? canonicalAnalysis.spectralConcentration : 0,
+        algorithmVersion: canonicalAnalysis.algorithmVersion,
       });
 
-      if (data.context !== "after_medication" || data.quality.status !== "valid") return { sessionId: session.id, pairId: null };
+      if (data.context !== "after_medication" || canonicalQuality.status !== "valid") return { sessionId: session.id, pairId: null };
 
       const [before] = await tx
         .select({ id: tremorTestSessions.id, startedAt: tremorTestSessions.startedAt, tremorPower: tremorResults.tremorPower })
         .from(tremorTestSessions)
         .innerJoin(tremorResults, eq(tremorResults.sessionId, tremorTestSessions.id))
         .leftJoin(tremorTestPairs, eq(tremorTestPairs.beforeSessionId, tremorTestSessions.id))
-        .where(and(eq(tremorTestSessions.patientProfileId, patient.id), eq(tremorTestSessions.medicationId, medication.id), eq(tremorTestSessions.context, "before_medication"), eq(tremorTestSessions.qualityStatus, "valid"), eq(tremorResults.algorithmVersion, data.analysis.algorithmVersion), isNull(tremorTestPairs.id)))
+        .where(and(eq(tremorTestSessions.patientProfileId, patient.id), eq(tremorTestSessions.medicationId, medication.id), eq(tremorTestSessions.context, "before_medication"), eq(tremorTestSessions.qualityStatus, "valid"), eq(tremorResults.algorithmVersion, canonicalAnalysis.algorithmVersion), isNull(tremorTestPairs.id)))
         .orderBy(desc(tremorTestSessions.startedAt))
         .limit(1);
 
