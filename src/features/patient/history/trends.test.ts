@@ -4,7 +4,7 @@ import { hasWorseningMedicationResponse } from "./trends";
 import type { HistoricalTestPair } from "./types";
 
 function pair(day: number, afterPower: number): HistoricalTestPair {
-  return { id: String(day), testedAt: new Date(2026, 0, day).toISOString(), medicationName: "Test", beforePower: 30, afterPower, improvementPercent: ((30 - afterPower) / 30) * 100, qualityStatus: "valid" };
+  return { id: String(day), testedAt: new Date(2026, 0, day).toISOString(), medicationName: "Test", beforePower: 30, afterPower, improvementPercent: ((30 - afterPower) / 30) * 100, qualityStatus: "valid", algorithmVersion: "signal-v2" };
 }
 
 describe("alert logic", () => {

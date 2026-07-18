@@ -89,6 +89,10 @@ export function DoctorPatientDetail({ patient }: { patient: DoctorPatientSummary
               label="Improvement"
               value={`${patient.latestImprovementPercent.toFixed(1)}%`}
             />
+            <Metric
+              label="Personal range"
+              value={formatPersonalRange(patient.latestPersonalRange, patient.latestPersonalDeviationPercent)}
+            />
           </div>
         </section>
       </div>
@@ -133,6 +137,20 @@ function Metric({ label, value }: { label: string; value: string }) {
       </p>
     </div>
   );
+}
+
+function formatPersonalRange(
+  status: DoctorPatientSummary["latestPersonalRange"],
+  deviation: number | null,
+) {
+  const label = {
+    building_baseline: "Building baseline",
+    within_usual: "Within usual range",
+    above_usual: "Above usual range",
+    below_usual: "Below usual range",
+    no_baseline: "No baseline",
+  }[status];
+  return deviation == null ? label : `${label} (${deviation >= 0 ? "+" : ""}${deviation.toFixed(1)}%)`;
 }
 
 function ChartPanel({

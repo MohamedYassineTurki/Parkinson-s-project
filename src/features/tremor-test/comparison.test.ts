@@ -4,7 +4,7 @@ import { compareMedicationResponse } from "./comparison";
 import type { SensorRecording } from "./types";
 
 function recording(power: number, quality: "valid" | "invalid" = "valid"): SensorRecording {
-  return { context: "before_medication", startedAt: new Date(), completedAt: new Date(), samples: [], quality: { status: quality, sampleCount: 500, durationMs: 10_000, sampleRateHz: 50, notes: [] }, analysis: { algorithmVersion: "signal-v1", severityClass: 1, severityLabel: "low", rmsIntensity: 1, dominantFrequencyHz: 5, tremorPower: power, spectralConcentration: 0.8, windowCount: 10, notes: [] } };
+  return { context: "before_medication", startedAt: new Date(), completedAt: new Date(), samples: [], quality: { status: quality, sampleCount: 500, durationMs: 10_000, sampleRateHz: 50, notes: [] }, analysis: { algorithmVersion: "signal-v2", severityClass: 1, severityLabel: "low", rmsIntensity: 1, dominantFrequencyHz: 5, tremorPower: power, spectralConcentration: 0.8, windowCount: 10, tremorWindowPercent: 80, processedSampleCount: 500, processedSampleRateHz: 50, notes: [] } };
 }
 
 describe("before/after comparison", () => {

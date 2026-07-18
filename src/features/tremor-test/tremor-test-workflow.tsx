@@ -618,6 +618,8 @@ function TremorAnalysisPanel({ analysis }: { analysis: TremorAnalysisResult }) {
                   : `${analysis.dominantFrequencyHz.toFixed(2)} Hz`
               }
             />
+            <Metric label="Analysis windows" value={String(analysis.windowCount)} />
+            <Metric label="Tremor-like windows" value={`${analysis.tremorWindowPercent.toFixed(0)}%`} />
             <Metric label="Tremor power" value={analysis.tremorPower.toFixed(2)} />
             <Metric label="RMS intensity" value={analysis.rmsIntensity.toFixed(2)} />
             <Metric

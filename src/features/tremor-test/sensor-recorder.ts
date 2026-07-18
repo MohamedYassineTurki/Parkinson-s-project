@@ -1,10 +1,13 @@
 import type { AccelerationSample, RecordingQuality } from "./types";
 
 const RECORDING_DURATION_MS = 10_000;
-const MIN_SAMPLE_COUNT = 150;
+const TARGET_SAMPLE_RATE_HZ = 50;
+const MIN_SAMPLE_COUNT = TARGET_SAMPLE_RATE_HZ * 7;
 const MIN_DURATION_MS = 9_000;
 const MAX_DURATION_MS = 12_000;
 const MAX_SPIKE_DELTA = 35;
+const MAX_TIMESTAMP_GAP_MS = 250;
+const MIN_EFFECTIVE_SAMPLE_RATE_HZ = 35;
 
 type PermissionState = "granted" | "denied" | "unsupported";
 
@@ -78,11 +81,19 @@ export function evaluateRecordingQuality(samples: AccelerationSample[]): Recordi
   const sampleRateHz = durationMs > 0 ? (sampleCount / durationMs) * 1000 : 0;
 
   if (sampleCount < MIN_SAMPLE_COUNT) {
-    notes.push("Not enough accelerometer samples were captured.");
+    notes.push("Not enough accelerometer samples were captured for fixed-rate analysis.");
   }
 
   if (durationMs < MIN_DURATION_MS || durationMs > MAX_DURATION_MS) {
     notes.push("Recording duration was outside the expected 10-second window.");
+  }
+
+  if (sampleRateHz < MIN_EFFECTIVE_SAMPLE_RATE_HZ) {
+    notes.push(`Sensor rate was below the ${MIN_EFFECTIVE_SAMPLE_RATE_HZ} Hz minimum for reliable resampling.`);
+  }
+
+  if (hasLargeTimestampGap(samples)) {
+    notes.push("Sensor delivery was interrupted during recording; repeat the test.");
   }
 
   if (hasLargeMotionSpike(samples)) {
@@ -96,6 +107,10 @@ export function evaluateRecordingQuality(samples: AccelerationSample[]): Recordi
     sampleRateHz,
     notes,
   };
+}
+
+function hasLargeTimestampGap(samples: AccelerationSample[]) {
+  return samples.some((sample, index) => index > 0 && sample.t - samples[index - 1].t > MAX_TIMESTAMP_GAP_MS);
 }
 
 function hasLargeMotionSpike(samples: AccelerationSample[]) {

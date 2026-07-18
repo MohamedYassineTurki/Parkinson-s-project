@@ -44,7 +44,7 @@ export type SensorRecording = {
 export type TremorSeverityLabel = "none" | "low" | "medium" | "high";
 
 export type TremorAnalysisResult = {
-  algorithmVersion: "signal-v1";
+  algorithmVersion: "signal-v2";
   severityClass: 0 | 1 | 2 | 3;
   severityLabel: TremorSeverityLabel;
   rmsIntensity: number;
@@ -52,6 +52,9 @@ export type TremorAnalysisResult = {
   tremorPower: number;
   spectralConcentration: number;
   windowCount: number;
+  tremorWindowPercent: number;
+  processedSampleCount: number;
+  processedSampleRateHz: number;
   notes: string[];
 };
 

@@ -15,6 +15,8 @@ export const demoDoctorPatients: DoctorPatientSummary[] = [
     latestSeverityClass: 2,
     latestTremorPower: 31.8,
     latestImprovementPercent: 19.7,
+    latestPersonalRange: "above_usual",
+    latestPersonalDeviationPercent: 35.1,
     status: "review_suggested",
     alertMessage:
       "Recent after-medication tremor results are higher than this patient's earlier pattern.",
@@ -38,6 +40,8 @@ export const demoDoctorPatients: DoctorPatientSummary[] = [
     latestSeverityClass: 1,
     latestTremorPower: 9.7,
     latestImprovementPercent: 62.4,
+    latestPersonalRange: "within_usual",
+    latestPersonalDeviationPercent: 2.4,
     status: "stable",
     trend: [
       { date: subDays(now, 27).toISOString(), beforePower: 27.9, afterPower: 10.7, improvementPercent: 61.6 },

@@ -25,6 +25,7 @@ export const demoHistoricalPairs: HistoricalTestPair[] = pairsSeed.map((item, in
   afterPower: item.after,
   improvementPercent: item.improvement,
   qualityStatus: "valid",
+  algorithmVersion: "signal-v2",
 }));
 
 export const demoHistoricalSessions: HistoricalTestSession[] = demoHistoricalPairs
@@ -33,21 +34,25 @@ export const demoHistoricalSessions: HistoricalTestSession[] = demoHistoricalPai
       id: `${pair.id}-before`,
       testedAt: pair.testedAt,
       context: "before_medication" as const,
+      medicationId: "demo-levodopa",
       medicationName: pair.medicationName,
       tremorPower: pair.beforePower,
       severityClass: severityFromPower(pair.beforePower),
       severityLabel: severityLabelFromPower(pair.beforePower),
       qualityStatus: pair.qualityStatus,
+      algorithmVersion: "signal-v2",
     },
     {
       id: `${pair.id}-after`,
       testedAt: pair.testedAt,
       context: "after_medication" as const,
+      medicationId: "demo-levodopa",
       medicationName: pair.medicationName,
       tremorPower: pair.afterPower,
       severityClass: severityFromPower(pair.afterPower),
       severityLabel: severityLabelFromPower(pair.afterPower),
       qualityStatus: pair.qualityStatus,
+      algorithmVersion: "signal-v2",
     },
   ])
   .sort((a, b) => Date.parse(b.testedAt) - Date.parse(a.testedAt));

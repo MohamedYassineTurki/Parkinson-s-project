@@ -11,7 +11,8 @@ export function calculateTrendSummary(
   pairs: HistoricalTestPair[],
   referenceDate = new Date(),
 ): TrendSummary {
-  const validSessions = sessions.filter((session) => session.qualityStatus === "valid");
+  const newestValidSession = sessions.find((session) => session.qualityStatus === "valid");
+  const validSessions = sessions.filter((session) => session.qualityStatus === "valid" && session.algorithmVersion === newestValidSession?.algorithmVersion);
   const latestSession = validSessions[0];
   const last7DaySessions = validSessions.filter(
     (session) => differenceInDays(referenceDate, new Date(session.testedAt)) <= 7,
@@ -19,7 +20,7 @@ export function calculateTrendSummary(
   const last30DaySessions = validSessions.filter(
     (session) => differenceInDays(referenceDate, new Date(session.testedAt)) <= 30,
   );
-  const validPairs = pairs.filter((pair) => pair.qualityStatus === "valid");
+  const validPairs = pairs.filter((pair) => pair.qualityStatus === "valid" && pair.algorithmVersion === newestValidSession?.algorithmVersion);
 
   return {
     latestSeverityClass: latestSession?.severityClass ?? null,
@@ -32,6 +33,7 @@ export function calculateTrendSummary(
       validPairs.map((pair) => pair.improvementPercent),
     ),
     alertCandidate: hasWorseningMedicationResponse(validPairs),
+    latestPersonalComparison: latestSession?.personalComparison ?? null,
   };
 }
 

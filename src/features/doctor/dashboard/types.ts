@@ -10,6 +10,8 @@ export type DoctorPatientSummary = {
   latestSeverityClass: 0 | 1 | 2 | 3;
   latestTremorPower: number;
   latestImprovementPercent: number;
+  latestPersonalRange: "building_baseline" | "within_usual" | "above_usual" | "below_usual" | "no_baseline";
+  latestPersonalDeviationPercent: number | null;
   status: DoctorPatientStatus;
   alertMessage?: string;
   trend: Array<{

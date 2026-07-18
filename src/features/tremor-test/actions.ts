@@ -41,7 +41,7 @@ const recordingSchema = z.object({
     notes: z.array(z.string().max(300)).max(20),
   }),
   analysis: z.object({
-    algorithmVersion: z.literal("signal-v1"),
+    algorithmVersion: z.literal("signal-v2"),
     severityClass: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
     severityLabel: z.enum(["none", "low", "medium", "high"]),
     rmsIntensity: z.number().finite().min(0),
@@ -119,7 +119,7 @@ export async function saveTremorRecording(input: SaveRecordingInput): Promise<Sa
         .from(tremorTestSessions)
         .innerJoin(tremorResults, eq(tremorResults.sessionId, tremorTestSessions.id))
         .leftJoin(tremorTestPairs, eq(tremorTestPairs.beforeSessionId, tremorTestSessions.id))
-        .where(and(eq(tremorTestSessions.patientProfileId, patient.id), eq(tremorTestSessions.medicationId, medication.id), eq(tremorTestSessions.context, "before_medication"), eq(tremorTestSessions.qualityStatus, "valid"), isNull(tremorTestPairs.id)))
+        .where(and(eq(tremorTestSessions.patientProfileId, patient.id), eq(tremorTestSessions.medicationId, medication.id), eq(tremorTestSessions.context, "before_medication"), eq(tremorTestSessions.qualityStatus, "valid"), eq(tremorResults.algorithmVersion, data.analysis.algorithmVersion), isNull(tremorTestPairs.id)))
         .orderBy(desc(tremorTestSessions.startedAt))
         .limit(1);
 

@@ -1,0 +1,17 @@
+[project]
+name = "parkinson-tremor-ml"
+version = "0.1.0"
+description = "Reproducible accelerometer preprocessing and baseline model training for Parkinson Project"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26,<3",
+  "scikit-learn>=1.4,<2",
+]
+
+[project.optional-dependencies]
+cnn = ["tensorflow>=2.16,<3"]
+dev = ["pytest>=8,<9"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

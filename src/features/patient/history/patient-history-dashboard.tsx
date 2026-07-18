@@ -55,6 +55,10 @@ export function PatientHistoryDashboard({
           value={formatMetric(summary.last7DayAveragePower)}
         />
         <SummaryCard
+          label="Personal range"
+          value={formatPersonalStatus(summary.latestPersonalComparison?.status)}
+        />
+        <SummaryCard
           label="Avg medication response"
           value={
             summary.averageImprovementPercent == null
@@ -90,6 +94,18 @@ export function PatientHistoryDashboard({
           </div>
         </div>
       )}
+
+      {summary.latestPersonalComparison ? (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-semibold text-slate-950">Latest personal comparison</p>
+          <p className="mt-1 text-sm leading-6 text-slate-700">
+            {summary.latestPersonalComparison.message}
+            {summary.latestPersonalComparison.deviationPercent != null
+              ? ` (${formatSignedPercent(summary.latestPersonalComparison.deviationPercent)} from the median of ${summary.latestPersonalComparison.baselineSessionCount} earlier valid tests.)`
+              : ""}
+          </p>
+        </div>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-2">
         <ChartPanel title="Tremor power over time">
@@ -152,6 +168,8 @@ export function PatientHistoryDashboard({
                 <th className="px-5 py-3 font-medium">Medication</th>
                 <th className="px-5 py-3 font-medium">Power</th>
                 <th className="px-5 py-3 font-medium">Severity</th>
+                <th className="px-5 py-3 font-medium">Processing</th>
+                <th className="px-5 py-3 font-medium">Personal range</th>
                 <th className="px-5 py-3 font-medium">Quality</th>
               </tr>
             </thead>
@@ -170,6 +188,12 @@ export function PatientHistoryDashboard({
                   </td>
                   <td className="px-5 py-3 text-slate-700">
                     {session.severityClass} - {session.severityLabel}
+                  </td>
+                  <td className="px-5 py-3 text-slate-700">{session.algorithmVersion}</td>
+                  <td className="px-5 py-3 text-slate-700">
+                    {session.personalComparison
+                      ? formatPersonalStatus(session.personalComparison.status)
+                      : "Not available"}
                   </td>
                   <td className="px-5 py-3">
                     <span className="rounded-md bg-teal-50 px-2 py-1 text-xs font-semibold text-teal-700">
@@ -214,4 +238,20 @@ function ChartPanel({
 
 function formatMetric(value: number | null) {
   return value == null ? "No data" : value.toFixed(1);
+}
+
+function formatPersonalStatus(
+  status: "building_baseline" | "within_usual" | "above_usual" | "below_usual" | undefined,
+) {
+  switch (status) {
+    case "within_usual": return "Within usual range";
+    case "above_usual": return "Above usual range";
+    case "below_usual": return "Below usual range";
+    case "building_baseline": return "Building baseline";
+    default: return "No baseline";
+  }
+}
+
+function formatSignedPercent(value: number) {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
