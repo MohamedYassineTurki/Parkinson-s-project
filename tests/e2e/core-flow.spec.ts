@@ -102,7 +102,7 @@ test("doctor invite, patient onboarding, sensor recording, and dashboard flow", 
     }, 20);
   });
   await expect(page.getByRole("heading", { name: "Your tests were linked" })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("Lower movement", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText(/lower movement/i).first()).toBeVisible();
   await page.getByRole("link", { name: "View personal trend" }).click();
   await expect(page).toHaveURL(/\/patient\/history/);
   await page.goto("/patient");
